@@ -22,13 +22,15 @@ def train(model, train_dataloader, eval_dataloader, epochs=5, save_model=False):
       # add batch to gpu
       batch = tuple(t.to(device) for t in batch)
       b_input_ids, b_labels, b_input_mask, b_ids = batch
-      loss, _ = model(b_input_ids, token_type_ids=None, attention_mask=b_input_mask, labels=b_labels)
+      output = model(b_input_ids, token_type_ids=None, attention_mask=b_input_mask, labels=b_labels)
+      loss= output.get("loss")
       loss.backward()
       tr_loss += loss.item()
       nb_tr_examples += b_input_ids.size(0)
       nb_tr_steps += 1
       torch.nn.utils.clip_grad_norm_(parameters=model.parameters(), max_norm=max_grad_norm)
       optimizer.step()
+      # https://stackoverflow.com/questions/48001598/why-do-we-need-to-call-zero-grad-in-pytorch
       model.zero_grad()
     print("Train loss: {}".format(tr_loss/nb_tr_steps))
 
@@ -49,8 +51,10 @@ def train(model, train_dataloader, eval_dataloader, epochs=5, save_model=False):
       batch = tuple(t.to(device) for t in batch)
       b_input_ids, b_labels, b_input_mask, b_ids = batch
       with torch.no_grad():
-        tmp_eval_loss, _ = model(b_input_ids, token_type_ids=None, attention_mask=b_input_mask, labels=b_labels)
-        logits = model(b_input_ids, token_type_ids=None, attention_mask=b_input_mask)     
+        outputs = model(b_input_ids, token_type_ids=None, attention_mask=b_input_mask, labels=b_labels)
+        tmp_eval_loss = outputs.loss  # Use `.loss` if using a HuggingFace model
+        logits = outputs.logits  # Use `.logits` for logits
+        #logits = model(b_input_ids, token_type_ids=None, attention_mask=b_input_mask)     
       eval_loss += tmp_eval_loss.mean().item()
       # eval_accuracy += tmp_eval_accuracy
       

@@ -92,7 +92,10 @@ def get_score(model, dataloader, sentences, bert_examples, mode=None, article_id
 
   if not os.path.isdir("predictions"):
     os.mkdir("predictions")
-  copyfile(os.path.join(config.home_dir, "tools/task-SI_scorer.py"), "predictions/task-SI_scorer.py")
+  source_path = os.path.normpath(os.path.join(config.home_dir, "applicaAI/tools/task-SI_scorer.py"))
+  destination_path = "predictions/task-SI_scorer.py"
+  copyfile(source_path, destination_path)
+  #copyfile(os.path.join(config.home_dir, "tools/task-SI_scorer.py"), "predictions/task-SI_scorer.py")
   with open("predictions/predictions.tsv", 'w') as fp:
     for index in indices:
       filename = "article" + article_ids[index] + ".task1-SI.labels"
