@@ -7,7 +7,7 @@ import numpy as np
 
 from transformers import BertTokenizer, BertForTokenClassification
 from transformers import get_linear_schedule_with_warmup, AdamW
-
+#from torch import AdamW as AdamWnew
 import identification
 
 def train(model, train_dataloader, eval_dataloader, epochs=5, save_model=False):
@@ -22,6 +22,7 @@ def train(model, train_dataloader, eval_dataloader, epochs=5, save_model=False):
       # add batch to gpu
       batch = tuple(t.to(device) for t in batch)
       b_input_ids, b_labels, b_input_mask, b_ids = batch
+      output = model(b_input_ids, token_type_ids=None,attention_mask=b_input_mask, labels=b_labels)
       output = model(b_input_ids, token_type_ids=None, attention_mask=b_input_mask, labels=b_labels)
       loss= output.get("loss")
       loss.backward()
@@ -52,11 +53,10 @@ def train(model, train_dataloader, eval_dataloader, epochs=5, save_model=False):
       b_input_ids, b_labels, b_input_mask, b_ids = batch
       with torch.no_grad():
         outputs = model(b_input_ids, token_type_ids=None, attention_mask=b_input_mask, labels=b_labels)
-        tmp_eval_loss = outputs.loss  # Use `.loss` if using a HuggingFace model
-        logits = outputs.logits  # Use `.logits` for logits
-        #logits = model(b_input_ids, token_type_ids=None, attention_mask=b_input_mask)     
+        tmp_eval_loss = outputs.get("loss")  # Use `.loss` if using a HuggingFace model
+        logits = outputs.get("logits")  # Use `.logits` for logits   
       eval_loss += tmp_eval_loss.mean().item()
-      # eval_accuracy += tmp_eval_accuracy
+      
       
       nb_eval_examples += b_input_ids.size(0)
       nb_eval_steps += 1
@@ -101,9 +101,14 @@ eval_dataloader, eval_sentences, eval_bert_examples = identification.get_data(ar
 
 
 num_labels = 2 + int(TAGGING_SCHEME =="BIO") + 2 * int(TAGGING_SCHEME == "BIOE")
-if identification.LANGUAGE_MODEL == "Albert":
-  from transformers import AlbertForTokenClassification
-  model = AlbertForTokenClassification.from_pretrained('albert-base-v2', num_labels=num_labels)
+if identification.LANGUAGE_MODEL == "RoBERTa":
+  from transformers import RobertaForTokenClassification
+  model = RobertaForTokenClassification.from_pretrained('roberta-large', num_labels=num_labels)
+elif identification.LANGUAGE_MODEL == "RoBERTa-CRF":
+  from transformers import RobertaModel
+  # for now use roberta base
+  model_base = RobertaModel.from_pretrained('roberta-base', add_pooling_layer=False)
+  model = identification.RobertaCRF(model_base, num_labels)
 else:
   from transformers import BertForTokenClassification
   model = BertForTokenClassification.from_pretrained('bert-base-uncased', num_labels=num_labels)
@@ -123,11 +128,8 @@ else:
 
 epochs = 4
 total_steps = total_steps = len(train_dataloader) * epochs
-optimizer = AdamW(model.parameters(),
-                  lr = 3e-5,
-                  eps = 1e-8
-                )
 
+optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
 scheduler = get_linear_schedule_with_warmup(optimizer, 
                                             num_warmup_steps = 0, # Default value in run_glue.py
                                             num_training_steps = total_steps)
