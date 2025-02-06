@@ -1,10 +1,10 @@
 import os
 import sys
 BATCH_SIZE = 8
-NUM_ARTICLES = 100
+NUM_ARTICLES = 10
 TAGGING_SCHEME = "BIO"
 #LANGUAGE_MODEL:= "BERT"| "RoBERTa" | "RoBERTa-CRF" | "DeBERTa" | "DeBERTa-CRF"
-LANGUAGE_MODEL = "RoBERTa-CRF"
+LANGUAGE_MODEL = "BERT"
 
 
 
@@ -34,7 +34,7 @@ else:
 
 home_dir = "C:/CS/3rd_Year_Project/Propaganda-detection-experiments/main"
 data_dir= r"C:\\CS\\3rd_Year_Project\\Propaganda-detection-experiments\\main\\datasets"
-model_dir=  r"C:\\CS\\3rd_Year_Project\\Propaganda-detection-experiments\\main\\applicaAI\\model_dir"
+model_dir=  r"C:\\CS\\3rd_Year_Project\\Propaganda-detection-experiments\\main\\architectures\\model_dir"
 
 
 if not os.path.isdir(model_dir):
