@@ -108,3 +108,4 @@ def get_score(model, dataloader, sentences, bert_examples, mode=None, article_id
   for index in indices:
     filename = "article" + article_ids[index] + ".task1-SI.labels"
     os.remove("predictions/" + filename)
+

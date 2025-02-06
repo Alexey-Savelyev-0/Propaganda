@@ -1,6 +1,7 @@
 import torch
 
-from . import config
+import config
+#from . import config
 
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 
@@ -29,7 +30,7 @@ def is_whitespace(c):
   return False
 
 def get_sentence_tokens_labels(article, span=None, article_index=None):
-  doc_tokens = []
+  doc_tokens = [] # builds up to a word
   char_to_word_offset = []
   current_sentence_tokens = [] # actually all sentence tokens for particular article. #TODO rename
   word_to_start_char_offset = {}
@@ -37,32 +38,55 @@ def get_sentence_tokens_labels(article, span=None, article_index=None):
   prev_is_whitespace = True
   prev_is_newline = True
   current_word_position = None
+  max_seq_length = 100
   for index, c in enumerate(article):
+    if len(doc_tokens) >= max_seq_length:
+      #current_word_position = (len(current_sentence_tokens), len(doc_tokens) - 1)
+      prev_is_whitespace = True
+      word_to_end_char_offset[current_word_position] = index
+      current_sentence_tokens.append(doc_tokens)
+      doc_tokens = []
+      """
+      if current_word_position is not None:
+        current_word_position = (len(current_sentence_tokens), len(doc_tokens) - 1)
+        word_to_start_char_offset[current_word_position] = index
+        current_word_position = None
+      """
+      #word_to_start_char_offset[current_word_position] = index
+      
     if c == "\n":
       prev_is_newline = True
       # check for empty lists
       if doc_tokens:
         current_sentence_tokens.append(doc_tokens)
-      doc_tokens = []
+        doc_tokens = []
     if is_whitespace(c):
       prev_is_whitespace = True
       if current_word_position is not None:
         word_to_end_char_offset[current_word_position] = index
         current_word_position = None
     else:
-      if prev_is_whitespace:
+      if prev_is_whitespace: # if whitespace, start a new word
         doc_tokens.append(c)
         current_word_position = (len(current_sentence_tokens), len(doc_tokens) - 1)
         word_to_start_char_offset[current_word_position] = index # start offset of word
-      else:
-        doc_tokens[-1] += c
+      else: # add to the current word
+        if doc_tokens:
+          doc_tokens[-1] += c
+        else:
+          doc_tokens.append(c)
       prev_is_whitespace = False
-    char_to_word_offset.append((len(current_sentence_tokens), len(doc_tokens) - 1))
+    char_to_word_offset.append((len(current_sentence_tokens), len(doc_tokens) - 1)) # maps current sentence to length of doc_tokens. 
+    # in other words, keeps log of how long each word is for a sentence 
   if doc_tokens:
     current_sentence_tokens.append(doc_tokens)
+
+
   if current_word_position is not None:
     word_to_end_char_offset[current_word_position] = index
     current_word_position = None
+
+
   if span is None:
     return current_sentence_tokens, (word_to_start_char_offset, word_to_end_char_offset)
 
@@ -96,7 +120,7 @@ def get_sentence_tokens_labels(article, span=None, article_index=None):
       current_propaganda_labels[start_positions[i][0]][start_positions[i][1]] = 2 # Begin label
       if start_positions[i][1] < end_positions[i][1]:
         current_propaganda_labels[start_positions[i][0]][start_positions[i][1] + 1 : end_positions[i][1] + 1] = [1] * (end_positions[i][1] - start_positions[i][1])
-    if config.TAGGING_SCHEME == "BIOE":
+    elif config.TAGGING_SCHEME == "BIOE":
       current_propaganda_labels[start_positions[i][0]][start_positions[i][1]] = 2 # Begin label
       if start_positions[i][1] < end_positions[i][1]:
         current_propaganda_labels[start_positions[i][0]][start_positions[i][1] + 1 : end_positions[i][1]] = [1] * (end_positions[i][1] - start_positions[i][1] - 1)
@@ -115,13 +139,16 @@ def get_sentence_tokens_labels(article, span=None, article_index=None):
     sentence.labels = current_propaganda_labels[i]
     sentence.article_index =  article_index
     sentence.index = i
+    
     sentence.word_to_start_char_offset = start_offset_list[i]
     sentence.word_to_end_char_offset = end_offset_list[i]
+    
     num_words = len(sentence.tokens)
     assert len(sentence.labels) == num_words
     assert len(sentence.word_to_start_char_offset) == num_words
     assert len(sentence.word_to_end_char_offset) == num_words
     sentences.append(sentence)
+
 
   return current_sentence_tokens, current_propaganda_labels, (word_to_start_char_offset, word_to_end_char_offset), sentences
 
@@ -156,6 +183,7 @@ def convert_sentence_to_input_feature(sentence, sentence_id, tokenizer, add_cls_
   sentence_tokens = sentence.tokens
   sentence_labels = sentence.labels 
 
+  # index of which subtokens are part of which word
   tok_to_orig_index = []
   orig_to_tok_index = []
   all_doc_tokens = [] 
@@ -188,6 +216,7 @@ def convert_sentence_to_input_feature(sentence, sentence_id, tokenizer, add_cls_
   
 
   labels = [0] * len(all_doc_tokens)
+  # the label of each word is replicated for each subtoken of the word
   for index, token in enumerate(all_doc_tokens):
     labels[index] = sentence_labels[tok_to_orig_index[index]]
   if add_cls_sep:
@@ -201,6 +230,10 @@ def convert_sentence_to_input_feature(sentence, sentence_id, tokenizer, add_cls_
   return bert_example 
 
 def get_dataloader(examples):
+  for d in examples:
+    if len(d.tokens_ids) > 256:
+      print("Sentence length greater than 256")
+      print(len(d.tokens_ids))
   inputs = torch.tensor([d.tokens_ids for d in examples])
   labels = torch.tensor([d.labels for d in examples])
   masks = torch.tensor([d.input_mask for d in examples])
@@ -208,6 +241,8 @@ def get_dataloader(examples):
   tensor_data = TensorDataset(inputs, labels, masks, sentence_ids)
   dataloader = DataLoader(tensor_data, batch_size=config.BATCH_SIZE)
   return dataloader
+
+
 
 def get_data(articles, spans, indices):
   assert len(articles) == len(spans)    
@@ -218,8 +253,29 @@ def get_data(articles, spans, indices):
     _, _, _, cur_sentences = get_sentence_tokens_labels(article, span, index)
     sentences += cur_sentences
 
-  print(len(sentences))
-  print(max([len(s.tokens) for s in sentences]))
+  
+  
+  
+  bert_examples = []
+  # currently one of the sentences is greater than 256 tokens - if this is the case, we need to split the sentence
+
+  for i, sentence in enumerate(sentences):
+    if len(sentence.tokens) > 256:
+      print("Sentence length greater than 256 aa")
+      print(len(sentence.tokens))
+    input_feature = convert_sentence_to_input_feature(sentence, i, config.tokenizer)
+    bert_examples.append(input_feature)
+  # if len(bert_examples) > 256: split
+  dataloader = get_dataloader(bert_examples)
+  
+  return dataloader, sentences, bert_examples
+
+def get_owt_data(articles,indices):
+  sentences = []
+  for index in indices:
+    article = articles[index]
+    cur_sentences, offsets = get_sentence_tokens_labels(article, None, index)
+    sentences += cur_sentences
 
   bert_examples = []
   for i, sentence in enumerate(sentences):
@@ -227,4 +283,3 @@ def get_data(articles, spans, indices):
     bert_examples.append(input_feature)
   dataloader = get_dataloader(bert_examples)
   return dataloader, sentences, bert_examples
-

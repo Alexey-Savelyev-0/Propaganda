@@ -1,8 +1,8 @@
 import os
 import sys
 BATCH_SIZE = 8
-NUM_ARTICLES = 10
-TAGGING_SCHEME = "BIOE"
+NUM_ARTICLES = 100
+TAGGING_SCHEME = "BIO"
 #LANGUAGE_MODEL:= "BERT"| "RoBERTa" | "RoBERTa-CRF" | "DeBERTa" | "DeBERTa-CRF"
 LANGUAGE_MODEL = "RoBERTa-CRF"
 
@@ -11,9 +11,9 @@ LANGUAGE_MODEL = "RoBERTa-CRF"
 
 
 
-if LANGUAGE_MODEL == "RoBERTa":
+if LANGUAGE_MODEL == "RoBERTa" or LANGUAGE_MODEL == "RoBERTa-CRF":
   from transformers import RobertaTokenizer
-  tokenizer = RobertaTokenizer.from_pretrained('roberta-large', lower_case=True)
+  tokenizer = RobertaTokenizer.from_pretrained('roberta-base', lower_case=True)
 else:
   from transformers import BertTokenizer
   tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', lower_case=True)

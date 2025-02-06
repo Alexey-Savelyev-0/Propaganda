@@ -20,31 +20,57 @@ Momentum .9
 
 
 
+training_config = {
+    "dropout": 0.1,
+    "attention_dropout": 0.1,
+    "max_seq_length": 256,
+    "batch_size": 8,
+    "learning_rate": 5e-4,
+    "num_steps": 60000,
+    "momentum": 0.9
+}
+
+
 
 import torch
 import identification
+import tqdm
+import numpy as np
 
 
 def train_applicaai_si(model, train_dataloader, eval_dataloader, train_sentences, steps=60000, save_model=True):
+    # train on gold data
+    progress_bar = tqdm(total=training_config["max_steps"], desc="Training Progress")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    optimizer = torch.optim.AdamW(model.parameters(), lr=training_config["learning_rate"])
+    global_step = 0
+    model.train()
+    for batch in train_dataloader:
+        if global_step >= training_config["max_steps"]:
+            break
+        batch = tuple(t.to(device) for t in batch)
+        b_input_ids, b_labels, b_input_mask, b_ids = batch
+        output = model(b_input_ids, token_type_ids=None, attention_mask=b_input_mask, labels=b_labels)
+        loss = output.get("loss")
+        loss.backward()
 
-    # Load data
+        optimizer.step()
+        model.zero_grad()
+        global_step += 1
+        progress_bar.update(1)
+
     
-    train_data = load_data("train")
-    worse_training_data = load_data("test")
+    articles = get_owt_articles()['text']
 
-    # Train Roberta-CRF on gold data
-    roberta_crf = RobertaCRF(vi)
-    roberta_crf.train(train_data)
-
-    # first combine the gold and silver data
-    combined_data = train_data + worse_training_data
+    indices = np.arange(NUM_ARTICLES)
+    print(articles[1])
+    spans = [[] for _ in range(NUM_ARTICLES)]
+    get_data(articles,spans, indices)
+    # now using trained model, label silver data
 
 
-    # Label silver data
-    silver_data = roberta_crf.label(combined_data)
 
-    # Train Roberta-CRF on silver data
-    # what is converged?
-    step_count = 0
-    while step_count < steps:
-        roberta_crf.train(silver_data)
+
+def label_silver_data(model, silver_dataloader):
+    pass
+        
