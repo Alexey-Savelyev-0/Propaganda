@@ -42,6 +42,57 @@ class FFN_SPAN(nn.Module):
         self.linear1 = nn.Linear(input_dim, hidden_dim)
         self.relu = nn.ReLU()
     
+class FFN_LABEL_WISE(nn.Module):
+    def __init__(self, input_dim, num_labels, hidden_dim=128):
+        super(FFN_LABEL_WISE, self).__init__()
+        
+        # Create separate FFN layers for each label
+        self.label_ffns = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(input_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, 1)  # Output a single logit per label
+            ) for _ in range(num_labels)
+        ])
+    
+    def forward(self, x):
+        # Apply each label's FFN separately and concatenate results
+        outputs = [ffn(x).squeeze(-1) for ffn in self.label_ffns]
+        return torch.stack(outputs, dim=1)  # Shape: (batch_size, num_labels)
+
+
+class TC_MODEL(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super(TC_MODEL, self).__init__()
+        self.FFN_BOS = FFN_BOS(input_dim, hidden_dim, output_dim)
+        self.FFN_SPAN = FFN_SPAN(input_dim, hidden_dim, output_dim)
+        self.FFN_LABEL_WISE = FFN_LABEL_WISE(input_dim, output_dim)
+        self.output_dim = output_dim
+        self.relu = nn.ReLU()
+        self.linear = nn.Linear(input_dim, output_dim)
+    def forward(self, x):
+        """The propaganda span representation is obtained by concatenating the representation of the
+        BoS token (e(tc)  BoS), tokens located at span start  (e(tc)  start) and end (e(tc)  end), 
+        and representations aggregated by attention (e(tc)  att ) and maxpooling (e(mtca)xp)"""
+
+
+        #only parse BoS tokens into the first FFN, and the rest into the second FFN
+        bos_token = x[:, 0, :]  # Assuming the first token in the sequence is the BoS token
+        span_tokens = x[:, 1:, :]  # The rest are span tokens
+
+        bos_output = self.FFN_BOS(bos_token)
+        span_output = self.FFN_SPAN(span_tokens)
+        e_tc_span = bos_output + span_output
+        # simgoid activation
+        # Define learnable parameters for each class
+        v_tc_l = nn.Parameter(torch.randn(self.output_dim))
+        b_tc_l = nn.Parameter(torch.randn(self.output_dim))
+
+        # Apply the label-wise FFN and compute the final output
+        y_tc_l = torch.sigmoid(v_tc_l * self.FFN_LABEL_WISE(e_tc_span) + b_tc_l)
+        
+
+
 def get_embedding(sentence):
     nlp = spacy.load("en_core_web_sm")
     doc = nlp(sentence)
@@ -71,20 +122,19 @@ def get_PLM_layer_attention(sentence, model, tokenizer):
     num_layers = len(hidden_states)
     batch_size, seq_len, hidden_dim = hidden_states[0].shape
 
-     # Convert hidden_states tuple to a tensor
+    
     hidden_states = torch.stack(hidden_states, dim=0)
 
-    # h = vector c multiplied by sum of jth layer of hidden states
+    
     s = nn.Parameter(torch.randn(num_layers))  # Attention weights
     c = nn.Parameter(torch.ones(1))  # Scaling factor
 
     attn_weights = F.softmax(s, dim=-1)  # Shape: (batch_size, seq_len, num_layers)
 
-    # Move dimensions for proper weighting: (batch_size, seq_len, num_layers) → (num_layers, batch_size, seq_len, 1)
-    attn_weights = attn_weights.permute(2, 0, 1).unsqueeze(-1)  # (num_layers, batch_size, seq_len, 1)
+    
+    attn_weights = attn_weights.permute(2, 0, 1).unsqueeze(-1)  
 
-    # Weighted sum of layers using broadcasting
-    fused_embeddings = torch.sum(attn_weights * hidden_states, dim=0)  # (batch_size, seq_len, hidden_dim)
+    fused_embeddings = torch.sum(attn_weights * hidden_states, dim=0)  
 
     return c * fused_embeddings  # Apply scaling factor
 
