@@ -61,9 +61,9 @@ class FFN_LABEL_WISE(nn.Module):
         return torch.stack(outputs, dim=1)  # Shape: (batch_size, num_labels)
 
 
-class TC_MODEL(nn.Module):
+class HITACHI_TC(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim):
-        super(TC_MODEL, self).__init__()
+        super(HITACHI_TC, self).__init__()
         self.FFN_BOS = FFN_BOS(input_dim, hidden_dim, output_dim)
         self.FFN_SPAN = FFN_SPAN(input_dim, hidden_dim, output_dim)
         self.FFN_LABEL_WISE = FFN_LABEL_WISE(input_dim, output_dim)
