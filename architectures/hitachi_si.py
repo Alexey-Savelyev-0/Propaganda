@@ -174,24 +174,19 @@ class HITACHI_SI(nn.Module):
         batch_ner_embeddings = torch.stack(batch_ner_embeddings)  
         return batch_pos_embeddings, batch_ner_embeddings
 
-    
-    attn_weights = attn_weights.permute(2, 0, 1).unsqueeze(-1)  
+    def get_token_representation(self,sentence,model,tokenizer):
+        """Token representation is obtained by concatting the plm representation, the PoS tag, and NE tag."""
+        plm = self.get_PLM_layer_attention(sentence,model,tokenizer)
+        ner, pos = self.get_special_tags(sentence)
 
-    fused_embeddings = torch.sum(attn_weights * hidden_states, dim=0)  
-
-    return c * fused_embeddings  # Apply scaling factor
-
-
+        return torch.cat((plm, ner, pos),dim=-1)
 
 
 
-def get_token_representation(sentence):
-    """Token representation is obtained by concatting the plm representation, the PoS tag, and NE tag."""
-    plm = get_PLM_layer_attention(sentence)
-    ner, pos = get_special_tags(sentence)
-    # if plm layer has multiple tokens for one word, we can average them
 
-    return torch.cat((plm, ner, pos))
+
+
+
 
 
 
