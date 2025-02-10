@@ -108,6 +108,12 @@ class HITACHI_SI(nn.Module):
 
         return c * fused_embeddings  # Apply scaling factor
 
+    def TLTC(self):
+        """ Token Level technique classification"""
+        pass
+
+    def SLC(self):
+        """Sentence Level Classification"""
 
 
     def get_embedding(self,sentence):
