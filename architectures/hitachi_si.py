@@ -42,8 +42,71 @@ class HITACHI_SI(nn.Module):
 
     def forward(self, x):
         pass
+    
+    # test that this behaves in the way you expect it to.
+    # at least dimensions are what they should be
+    def get_PLM_layer_attention(self,sentence, model,tokenizer,avg_subtokens = True):
+        """ To obtain input representations, we provide a layer-wise attention to fuse the outputs of PLM layers.
+        To obtain the ith word, we sum PLM(i,j) over j, j being the layer index. In this sum
+        we apply a softmax to a trainable parameter vector, which is multiplied by the output of the PLM layer.
+        The concrete details may be found in the paper.
+        """
+        
+        # for BERT
+        inputs = tokenizer(sentence, return_tensors="pt")
+        tokenizer_words = tokenizer.tokenize(sentence[0])
+        num_words = len(self.get_embedding(sentence)) +2
+        token_to_word_mapping = {}
+        cur_word = 0
+        # Only works for BERT-like models
+        token_to_word_mapping[0]= cur_word
+        for i in range(0,len(tokenizer_words)):
+            subword = tokenizer_words[i]
+            if len(subword)<2 or  subword[:2] != "##":
+                cur_word+=1
+            
+            token_to_word_mapping[i+1] = cur_word
+        token_to_word_mapping[len(tokenizer_words)+1] = cur_word+1
+            
+
+        with torch.no_grad():
+            outputs = model(**inputs)
+            hidden_states = outputs.hidden_states  # Tuple of shape (num_layers, batch_size, seq_len, hidden_dim)
+
+        if inputs["input_ids"].shape[1] +2 != num_words:
+            # average the hidden states of (a,b,c,d) and (e,f,g,h) if same batch size i.e b==e and c and g belong to the same token
+            pass
+
+        num_layers = len(hidden_states)
+        batch_size, seq_len, hidden_dim = hidden_states[0].shape
+
+        hidden_states = torch.stack(hidden_states, dim=0)
+
+        if avg_subtokens == True:
+            averaged_hidden_states = torch.zeros((num_layers, batch_size, num_words, hidden_dim), device=hidden_states.device)
+            word_indices = torch.tensor(list(token_to_word_mapping.values()), device=hidden_states.device)
+            word_counts = torch.zeros((batch_size, num_words, 1), device=hidden_states.device)
+            averaged_hidden_states.scatter_add_(2, word_indices.view(1, 1, -1, 1).expand(num_layers, batch_size, -1, hidden_dim), hidden_states)
+            ones = torch.ones((batch_size, seq_len, 1), device=hidden_states.device)
+            word_counts.scatter_add_(1, word_indices.view(1, -1, 1).expand(batch_size, -1, 1), ones)
+            word_counts[word_counts == 0] = 1 
+            averaged_hidden_states /= word_counts.unsqueeze(0)
+            hidden_states=averaged_hidden_states
 
 
+        # lets say for a word i we will have a PLM vector
+        s = nn.Parameter(torch.randn(num_layers))  # Attention weights
+        # c is a scalar, s is a vector of dim num_layers 
+        c = nn.Parameter(torch.ones(1))  # Scaling factor
+
+        attn_weights = F.softmax(s, dim=-1) 
+        attn_weights = attn_weights.view(num_layers, 1, 1, 1)
+        
+        
+        # for every token i, we go through layers j, multiplyingsoftmax(s) 
+        fused_embeddings = torch.sum(attn_weights * hidden_states, dim=0)
+
+        return c * fused_embeddings  # Apply scaling factor
 
 
 
@@ -56,36 +119,7 @@ class HITACHI_SI(nn.Module):
         return [token.text for token in doc]
 
 
-def get_plm_representation(sentence, tokenizer, model, add_cls_sep=True, max_seq_len=150):
-    tokenized_sentence = tokenizer.encode_plus(sentence,
-                                             add_special_tokens=add_cls_sep,
-                                             max_length=max_seq_len,
-                                             pad_to_max_length=True,
-                                             return_attention_mask=True)
-    return tokenized_sentence['input_ids'], tokenized_sentence['attention_mask']
 
-def get_PLM_layer_attention(sentence, model, tokenizer):
-    """ To obtain input representations, we provide a layer-wise attention to fuse the outputs of PLM layers.
-    To obtain the ith word, we sum PLM(i,j) over j, j being the layer index. In this sum
-    we apply a softmax to a trainable parameter vector, which is multiplied by the output of the PLM layer.
-    The concrete details may be found in the paper.
-    """
-    
-    inputs = get_plm_representation(sentence, tokenizer, model)
-
-    with torch.no_grad():
-        outputs = model(**inputs)
-        hidden_states = outputs.hidden_states  # Tuple of shape (num_layers, batch_size, seq_len, hidden_dim)
-
-    num_layers = len(hidden_states)
-    batch_size, seq_len, hidden_dim = hidden_states[0].shape
-
-    
-    hidden_states = torch.stack(hidden_states, dim=0)
-
-    
-    s = nn.Parameter(torch.randn(num_layers))  # Attention weights
-    c = nn.Parameter(torch.ones(1))  # Scaling factor
 
     attn_weights = F.softmax(s, dim=-1)  # Shape: (batch_size, seq_len, num_layers)
 
