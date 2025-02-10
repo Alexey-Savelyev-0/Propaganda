@@ -6,7 +6,8 @@ import spacy
 # import crf
 import torch.nn.functional as F
 from torchcrf import CRF
-
+from sklearn.model_selection import train_test_split
+import classification
 
 NLP = spacy.load("en_core_web_sm")
 
@@ -21,6 +22,23 @@ The tasks are as follows:
 2. Sentence Level Binary Classification
 """
 
+class FFN_TC(nn.Module):
+    def __init__(self, input_dim, hidden_dim=200, output_dim=15):
+        super(FFN_TC, self).__init__()
+        self.FFN = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim), # hidden layer
+            nn.ReLU(),
+            nn.Linear(hidden_dim, output_dim) #output
+            
+        )
+        crf = CRF(output_dim)
+    def forward(self, x):
+        nn_output = self.FFN(x)
+        crf_output = self.crf(nn_output)
+        return crf_output
+
+
+
 
 class HITACHI_SI(nn.Module):
     def __init__(self,PLM="BERT", input_dim=None, hidden_dim=None, output_dim=None):
@@ -28,20 +46,24 @@ class HITACHI_SI(nn.Module):
         if PLM == "BERT":
             self.PLM = transformers.BertModel.from_pretrained('bert-base-uncased')
 
-        self.BILSTM = nn.LSTM(input_dim, hidden_dim, bidirectional=True)
+        self.BiLSTM = nn.LSTM(input_dim, hidden_dim, bidirectional=True)
         self.output_dim = output_dim
         self.linear = nn.Linear(hidden_dim*2, output_dim)
         self.relu = nn.ReLU()
-        # change
-        self.FFN = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim)
-        )
+
+        self.FFN_BIO = nn.Linear(input_dim, hidden_dim)
+        self.FFN_TC = nn.Linear(input_dim, hidden_dim)
+        # for auxillary task2 we need another similar model to HITACHI_SI to predict which sentences to train on
+
         self.CRF = CRF(output_dim)
 
-    def forward(self, x):
-        pass
+    def forward(self,input_ids=None,attention_mask=None,token_type_ids=None,position_ids=None,head_mask=None,inputs_embeds=None,labels=None,lengths=None):
+        # before this is even ran, data should be preprocessed via get_token_representation
+        lstm_output = self.BiLSTM(input_ids)
+        technique_classification = self.FFN_TC(lstm_output)
+        # how to get tc loss?
+        bio_classification = self.FFN_BIO(lstm_output)
+
     
     # test that this behaves in the way you expect it to.
     # at least dimensions are what they should be
@@ -182,11 +204,36 @@ class HITACHI_SI(nn.Module):
         return torch.cat((plm, ner, pos),dim=-1)
 
 
+class FFN_SLC(HITACHI_SI):
+    def __init__(self, input_dim, hidden_dim=200, output_dim=1):
+        super(FFN_SLC, self).__init__()
+        
+    def forward(self, x):
+        """
+        sentence class = sigmoid(
+        trainable vec transposed *
+        FFN(BiLISTM(BoS) concat positional info)
+        + bias
+        )
+        in theory bias+ trainable vec should be accounted for in a pytorch linear module
+        """
+        return self.BiLSTM(x)
 
 
 
+def hitachi_si_train():
 
-
+    articles, article_ids = classification.read_articles("train-articles")
+    spans, techniques = classification.read_spans()
+    NUM_ARTICLES = 10
+    articles = articles[0:NUM_ARTICLES]
+    spans = spans[0:NUM_ARTICLES]
+    techniques = techniques[0:NUM_ARTICLES]
+    indices = np.arange(NUM_ARTICLES)
+    train_articles, eval_articles, train_spans, eval_spans, train_techniques, eval_techniques, train_indices, eval_indices = train_test_split(articles, spans, techniques, indices, test_size=0.2)
+    train_dataloader = classification.get_data(train_articles, train_spans, train_techniques)
+    eval_dataloader = classification.get_data(eval_articles, eval_spans, eval_techniques)
+    classification.train(model, train_dataloader, eval_dataloader, epochs=2)
 
 
 

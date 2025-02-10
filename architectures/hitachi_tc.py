@@ -59,6 +59,8 @@ class FFN_LABEL_WISE(nn.Module):
         # Apply each label's FFN separately and concatenate results
         outputs = [ffn(x).squeeze(-1) for ffn in self.label_ffns]
         return torch.stack(outputs, dim=1)  # Shape: (batch_size, num_labels)
+    
+
 
 
 class HITACHI_TC(nn.Module):
