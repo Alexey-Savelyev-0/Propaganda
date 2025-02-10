@@ -9,6 +9,16 @@ from torchcrf import CRF
 
 
 
+"""
+To Do: 
+1. Flesh out HITACHI_SI
+2. Integrate with boilerplate code
+3. Create auxillary tasks
+The tasks are as follows:
+1. Token - Level Technique Classification
+2. Sentence Level Binary Classification
+"""
+
 
 class HITACHI_SI(nn.Module):
     def __init__(self,PLM="BERT", input_dim=None, hidden_dim=None, output_dim=None):
