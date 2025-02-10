@@ -124,10 +124,55 @@ class HITACHI_SI(nn.Module):
         # return text as a list of tokens
         return [token.text for token in doc]
 
+    def get_special_tags(self,sentences):
+        """ Tokenizes sentences, returns their special tags in dimensions (sentences, sentence-length, vector length)
+        In Hitachi, special tags are: Part of Speech - PoS and Named Entities: One hot vector embeddings are generated for both
+        If BERT is being used, 'special embeddings for CLS and SEP' are used.
+        """
 
 
+        nlp = spacy.load("en_core_web_sm")
+        
+        pos_tags = list(nlp.get_pipe("tagger").label_data)  
+        ner_tags = list(nlp.get_pipe("ner").labels)  
+        
+        batch_pos_embeddings = []
+        batch_ner_embeddings = []
+        for sentence in sentences:
+            doc = nlp(sentence)
+            sentence_tokens = [token.text for token in doc]
+            pos_embeddings = []
+            ner_embeddings = []
+            pos_CLS,pos_SEP = torch.zeros(len(pos_tags)+2),torch.zeros(len(pos_tags)+2)
+            pos_CLS[-1], pos_SEP[-2] = 1,1
 
-    attn_weights = F.softmax(s, dim=-1)  # Shape: (batch_size, seq_len, num_layers)
+            ner_CLS,ner_SEP = torch.zeros(len(ner_tags)+2),torch.zeros(len(ner_tags)+2)
+            ner_CLS[-1], ner_SEP[-2] = 1,1
+
+            pos_embeddings.append(pos_CLS)
+            ner_embeddings.append(ner_CLS)
+            
+
+            for token in doc:
+                # One-hot encoding for PoS, len+2 to account for CLS & SEP
+                pos_one_hot = torch.zeros(len(pos_tags)+2)
+                # part of speech is returning empty
+                if token.pos_ in pos_tags:
+                    pos_one_hot[pos_tags.index(token.pos_)] = 1
+                # One-hot encoding for Named Entity (NER)
+                ner_one_hot = torch.zeros(len(ner_tags)+2)
+                if token.ent_type_ in ner_tags:
+                    ner_one_hot[ner_tags.index(token.ent_type_)] = 1
+                pos_embeddings.append(pos_one_hot)
+                ner_embeddings.append(ner_one_hot)
+            
+            pos_embeddings.append(pos_SEP)
+            ner_embeddings.append(ner_SEP)
+            batch_pos_embeddings.append(torch.stack(pos_embeddings))
+            batch_ner_embeddings.append(torch.stack(ner_embeddings))
+        batch_pos_embeddings = torch.stack(batch_pos_embeddings)  
+        batch_ner_embeddings = torch.stack(batch_ner_embeddings)  
+        return batch_pos_embeddings, batch_ner_embeddings
 
     
     attn_weights = attn_weights.permute(2, 0, 1).unsqueeze(-1)  
@@ -136,29 +181,9 @@ class HITACHI_SI(nn.Module):
 
     return c * fused_embeddings  # Apply scaling factor
 
-def get_special_tags(sentence):
-    nlp = spacy.load("en_core_web_sm")
-    doc = nlp(sentence)
-    pos_tags = list(nlp.get_pipe("tok2vec").labels)  # Get all possible POS tags
-    ner_tags = list(nlp.get_pipe("ner").labels)  # Get all possible entity labels
-    word_embeddings = []
-    for token in doc:
-        # Contextual embedding from transformer model
 
-        # One-hot encoding for PoS
-        pos_one_hot = np.zeros(len(pos_tags))
-        if token.pos_ in pos_tags:
-            pos_one_hot[pos_tags.index(token.pos_)] = 1
 
-        # One-hot encoding for Named Entity (NER)
-        ner_one_hot = np.zeros(len(ner_tags))
-        if token.ent_type_ in ner_tags:
-            ner_one_hot[ner_tags.index(token.ent_type_)] = 1
 
-        # Concatenate embeddings
-        combined_embedding = np.concatenate([pos_one_hot, ner_one_hot])
-        word_embeddings.append(combined_embedding)
-    return word_embeddings
 
 def get_token_representation(sentence):
     """Token representation is obtained by concatting the plm representation, the PoS tag, and NE tag."""
