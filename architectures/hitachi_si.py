@@ -192,29 +192,11 @@ class HITACHI_SI(nn.Module):
 
 
 if __name__ == "__main__":
-    nlp = spacy.load("en_core_web_sm")
-    doc = nlp("Apple is looking at buying U.K. startup for $1 billion")
-
-
-    word_embeddings = []
-    pos_tags = list(nlp.get_pipe("tok2vec").labels)  # Get all possible POS tags
-    ner_tags = list(nlp.get_pipe("ner").labels)  # Get all possible entity labels
-
-    for token in doc:
-        # Contextual embedding from transformer model
-        
-        # One-hot encoding for PoS
-        pos_one_hot = np.zeros(len(pos_tags))
-        if token.pos_ in pos_tags:
-
-            pos_one_hot[pos_tags.index(token.pos_)] = 1
-        
-        # One-hot encoding for Named Entity (NER)
-        ner_one_hot = np.zeros(len(ner_tags))
-        if token.ent_type_ in ner_tags:
-            ner_one_hot[ner_tags.index(token.ent_type_)] = 1
-
-        # Concatenate embeddings
-        combined_embedding = np.concatenate([ pos_one_hot, ner_one_hot])
-        word_embeddings.append(combined_embedding)
-    print(word_embeddings)
+    model = transformers.BertModel.from_pretrained('bert-base-uncased',output_hidden_states=True)
+    tokenizer = transformers.BertTokenizer.from_pretrained('bert-base-uncased')
+    sentence = ["The quick brown fox jumps over the lazy dog."]
+    sentence = ["##Tokenization is fascinating!"]
+    hitachi_si = HITACHI_SI()
+    #sentence = ["Can you pass me the salt?"]
+    #sentence = "The slow."
+    print(hitachi_si.get_token_representation(sentence,model, tokenizer))
