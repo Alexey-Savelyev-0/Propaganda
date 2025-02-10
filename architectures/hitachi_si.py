@@ -8,6 +8,8 @@ import torch.nn.functional as F
 from torchcrf import CRF
 
 
+NLP = spacy.load("en_core_web_sm")
+
 
 """
 To Do: 
@@ -45,11 +47,14 @@ class HITACHI_SI(nn.Module):
 
 
 
+    def get_embedding(self,sentence):
+        """ UPDATE ONCE DEBUGGING IS DONE!!!!!!!!!!!!!!!!"""
+        nlp = spacy.load("en_core_web_sm")
+        doc = nlp(sentence[0]) # 
+            
+        # return text as a list of tokens
+        return [token.text for token in doc]
 
-def get_embedding(sentence):
-    nlp = spacy.load("en_core_web_sm")
-    doc = nlp(sentence)
-    return doc.vector
 
 def get_plm_representation(sentence, tokenizer, model, add_cls_sep=True, max_seq_len=150):
     tokenized_sentence = tokenizer.encode_plus(sentence,
