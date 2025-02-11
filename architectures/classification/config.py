@@ -1,11 +1,11 @@
 import os
 import torch
-
-
+from transformers import BertTokenizerFast
+import transformers
 # home_dir = "gdrive/My Drive/propaganda_detection"
-home_dir = "./"
-data_dir = os.path.join(home_dir, "datasets")
-model_dir = os.path.join(home_dir, "model_dir")
+home_dir = "C:/CS/3rd_Year_Project/Propaganda-detection-experiments/main"
+data_dir= r"C:\\CS\\3rd_Year_Project\\Propaganda-detection-experiments\\main\\datasets"
+model_dir=  r"C:\\CS\\3rd_Year_Project\\Propaganda-detection-experiments\\main\\architectures\\model_dir"
 
 # distinct_techniques = list(set([y for x in techniques for y in x])) # idx to tag
 distinct_techniques = [
@@ -32,12 +32,14 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 NUM_ARTICLES = 20
-LANGUAGE_MODEL = "Roberta"
+LANGUAGE_MODEL = "BERT"
 
 if LANGUAGE_MODEL == "Roberta":
   from transformers import RobertaTokenizer
   tokenizer = RobertaTokenizer.from_pretrained('roberta-base', lower_case=True)
-else:
+  model = RobertaForTokenClassification.from_pretrained('roberta-base', num_labels=len(tag2idx))
+elif LANGUAGE_MODEL == "BERT":
   from transformers import BertTokenizer
-  tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', lower_case=True)
+  tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased', lower_case=True)
+  model = transformers.BertModel.from_pretrained('bert-base-uncased',output_hidden_states=True)
 

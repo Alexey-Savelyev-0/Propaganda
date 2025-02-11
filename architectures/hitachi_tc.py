@@ -173,7 +173,44 @@ def get_token_representation(sentence):
     return torch.cat((plm, ner, pos))
 
 
+def hitachi_tc_train():
+    hitachi_si = HITACHI_SI()
+    articles, article_ids = classification.read_articles("train-articles")
+    spans, techniques = classification.read_spans()
+    NUM_ARTICLES = 10
+    articles = articles[0:NUM_ARTICLES]
+    spans = spans[0:NUM_ARTICLES]
+    techniques = techniques[0:NUM_ARTICLES]
+    indices = np.arange(NUM_ARTICLES)
+    train_articles, eval_articles, train_spans, eval_spans, train_techniques, eval_techniques, train_indices, eval_indices = train_test_split(articles, spans, techniques, indices, test_size=0.2)
+    train_dataloader = get_data_hitachi(train_articles, train_spans, train_techniques)
+    eval_dataloader = get_data_hitachi(eval_articles, eval_spans, eval_techniques)
+    model = transformers.BertModel.from_pretrained('bert-base-uncased',output_hidden_states=True)
+    tokenizer = transformers.BertTokenizer.from_pretrained('bert-base-uncased')
+    epochs = 1
+    for epoch_i in range(0, epochs):
+        hitachi_si.train()
+        for step, batch in enumerate(train_dataloader):
+            print(batch[1].shape)
+            b_input_ids = batch[0].to(device)
+            b_labels = batch[1].to(device)
+            b_input_mask = batch[2].to(device)
+            b_lengths = batch[3].to(device)
+            with torch.no_grad():        
+                outputs = model(b_input_ids, 
+                        token_type_ids=None, 
+                        attention_mask=b_input_mask)
+                loss = outputs[0]
 
+                total_loss += loss.item()
+
+                loss.backward()
+
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
+                optimizer.step()
+
+                scheduler.step() # TODO
 
 
 nlp = spacy.load("en_core_web_sm")
