@@ -77,16 +77,15 @@ def get_PLM_layer_attention(sentence, model, tokenizer):
     # h = vector c multiplied by sum of jth layer of hidden states
     s = nn.Parameter(torch.randn(num_layers))  # Attention weights
     c = nn.Parameter(torch.ones(1))  # Scaling factor
-
-    attn_weights = F.softmax(s, dim=-1)  # Shape: (batch_size, seq_len, num_layers)
-
-    # Move dimensions for proper weighting: (batch_size, seq_len, num_layers) → (num_layers, batch_size, seq_len, 1)
-    attn_weights = attn_weights.permute(2, 0, 1).unsqueeze(-1)  # (num_layers, batch_size, seq_len, 1)
-
-    # Weighted sum of layers using broadcasting
-    fused_embeddings = torch.sum(attn_weights * hidden_states, dim=0)  # (batch_size, seq_len, hidden_dim)
-
-    return c * fused_embeddings  # Apply scaling factor
+    
+    output = torch.zeros(hidden_states.shape[1], hidden_states.shape[2])
+    h = torch.zeros(hidden_states.shape[1], hidden_states.shape[2])
+    for i in range(hidden_states.shape[1]):
+        for j in range(hidden_states.shape[0]):
+            h = h + softmax(s) * hidden_states[i][j]
+        h = h * c
+        output[i] = h
+    return output
 
 def get_special_tags(sentence):
     nlp = spacy.load("en_core_web_sm")

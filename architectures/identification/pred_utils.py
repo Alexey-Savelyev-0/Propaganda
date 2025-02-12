@@ -33,8 +33,8 @@ def get_model_predictions(model, dataloader):
     batch = tuple(t.to(device) for t in batch)
     b_input_ids, b_labels, b_input_mask, b_ids = batch  
     with torch.no_grad():
-      logits = model(b_input_ids, token_type_ids=None, attention_mask=b_input_mask)
-    logits = logits[0]
+      output = model(b_input_ids, token_type_ids=None, attention_mask=b_input_mask)
+    logits = output.get("logits")
     logits = logits.detach().cpu().numpy()
     label_ids = b_labels.to('cpu').numpy()
     s_ids = b_ids.to('cpu').numpy()
@@ -108,3 +108,4 @@ def get_score(model, dataloader, sentences, bert_examples, mode=None, article_id
   for index in indices:
     filename = "article" + article_ids[index] + ".task1-SI.labels"
     os.remove("predictions/" + filename)
+
