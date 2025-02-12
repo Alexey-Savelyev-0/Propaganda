@@ -39,6 +39,21 @@ def get_sentence_tokens_labels(article, span=None, article_index=None):
   prev_is_newline = True
   current_word_position = None
   max_seq_length = 100
+  # can be updated with spacy
+  import spacy
+  nlp = spacy.load("en_core_web_sm")
+  # TEST THIS DOESNT BREAK FUNCTION
+  sentences = article.split("\n")
+  for x in range(len(sentences)):
+    doc = nlp(sentences[x])
+    doc_tokens = [token.text for token in doc]
+    current_sentence_tokens.append(doc_tokens)
+    for token in doc:
+      word_to_start_char_offset[(x, token.i)] = token.idx
+      word_to_end_char_offset[(x, token.i)] = token.idx + len(token.text)
+  word_to_start_char_offset = {}
+
+  
   for index, c in enumerate(article):
     if len(doc_tokens) >= max_seq_length:
       #current_word_position = (len(current_sentence_tokens), len(doc_tokens) - 1)
@@ -46,12 +61,13 @@ def get_sentence_tokens_labels(article, span=None, article_index=None):
       word_to_end_char_offset[current_word_position] = index
       current_sentence_tokens.append(doc_tokens)
       doc_tokens = []
-      """
-      if current_word_position is not None:
-        current_word_position = (len(current_sentence_tokens), len(doc_tokens) - 1)
-        word_to_start_char_offset[current_word_position] = index
-        current_word_position = None
-      """
+
+      
+      #if current_word_position is not None:
+        #current_word_position = (len(current_sentence_tokens), len(doc_tokens) - 1)
+        #word_to_start_char_offset[current_word_position] = index
+        #current_word_position = None
+      
       #word_to_start_char_offset[current_word_position] = index
       
     if c == "\n":
@@ -80,12 +96,12 @@ def get_sentence_tokens_labels(article, span=None, article_index=None):
     # in other words, keeps log of how long each word is for a sentence 
   if doc_tokens:
     current_sentence_tokens.append(doc_tokens)
-
+  
 
   if current_word_position is not None:
     word_to_end_char_offset[current_word_position] = index
     current_word_position = None
-
+  
 
   if span is None:
     return current_sentence_tokens, (word_to_start_char_offset, word_to_end_char_offset)
