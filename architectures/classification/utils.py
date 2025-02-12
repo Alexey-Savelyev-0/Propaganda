@@ -12,7 +12,7 @@ def read_articles(dir_name):
   articles = []
   train_dir = os.path.join(data_dir, dir_name)
   for filename in sorted(os.listdir(train_dir)):
-    myfile = open(os.path.join(train_dir, filename))
+    myfile = open(os.path.join(train_dir, filename),encoding="utf8")
     article = myfile.read()
     articles.append(article)
     myfile.close()

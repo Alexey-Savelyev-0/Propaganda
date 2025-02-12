@@ -56,7 +56,7 @@ if classification.LANGUAGE_MODEL == "Roberta":
 
 else:
   from transformers import BertForSequenceClassification
-  tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', lower_case=True)
+  # tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', lower_case=True)
   model = BertForSequenceClassification.from_pretrained(
       "bert-base-uncased",
       num_labels = len(classification.distinct_techniques),

@@ -6,6 +6,7 @@ from . import config
 import torch
 
 def get_examples(articles, spans, techniques):
+  # only adds sentences with a technique - not necessarily the best approach.
   assert len(articles) == len(spans) and len(spans) == len(techniques)
   sentences = []
   labels = []
@@ -14,6 +15,7 @@ def get_examples(articles, spans, techniques):
     technique = techniques[index]
     assert len(technique) == len(span)
     for i, sp in enumerate(span):
+      # convert str label to int
       pt = config.tag2idx[technique[i]]
       sentence = article[sp[0]: sp[1]]
       sentences.append(sentence)
@@ -29,12 +31,15 @@ def convert_sentence_to_input_feature(sentence, tokenizer, add_cls_sep=True, max
   return tokenized_sentence['input_ids'], tokenized_sentence['attention_mask']
 
 def get_data(articles, spans, techniques):
+  
   sentences, labels = get_examples(articles, spans, techniques)
   attention_masks = []
   inputs = []
   lengths = []
   for i, sentence in enumerate(sentences):
     lengths.append(len(sentence) / 100) # divide by 100 for normalization
+    """perhaps replace convert_sentence_to_inpt feature with our function?"""
+    """why are there masks? Maybe to ignore the padding tokens?"""
     input_ids, mask = convert_sentence_to_input_feature(sentence, config.tokenizer)
     inputs.append(input_ids)
     attention_masks.append(mask)

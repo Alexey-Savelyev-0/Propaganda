@@ -269,9 +269,7 @@ def get_data_hitachi(articles: list[str], spans: list[list[int]], indices: list[
     dataloader = get_dataloader(bert_examples)
     return dataloader, sentences, bert_examples
 
-
-def get_
-
+    
 
 def hitachi_si_train():
     hitachi_si = HITACHI_SI()
