@@ -46,11 +46,12 @@ class HITACHI_SI(nn.Module):
     def __init__(self,PLM="BERT", input_dim=840, hidden_dim=600, output_dim=15):
         super(HITACHI_SI, self).__init__()
         if PLM == "BERT":
-            self.PLM = transformers.BertModel.from_pretrained('bert-base-uncased')
-            num_layers = self.PLM.config.num_hidden_layers
-            s = nn.Parameter(torch.randn(num_layers))  # Attention weights
+            self.PLM = transformers.BertModel.from_pretrained('bert-base-uncased',output_hidden_states=True)
+            # +1 means we currently include embedding layer in the attnetion weights - not sure that is correct
+            num_layers = self.PLM.config.num_hidden_layers +1
+            self.s = nn.Parameter(torch.randn(num_layers))  # Attention weights
             # c is a scalar, s is a vector of dim num_layers 
-            c = nn.Parameter(torch.ones(1)) 
+            self.c = nn.Parameter(torch.ones(1)) 
 
         self.BiLSTM = nn.LSTM(input_dim, hidden_dim, bidirectional=True,batch_first=True)
         self.output_dim = output_dim
@@ -139,20 +140,19 @@ def hitachi_si_train():
         for step, batch in enumerate(dataloader):
             b_input_ids, b_lengths, b_labels = batch
             b_input_ids = b_input_ids.to(device)
-            b_labels = b_labels.to(device)
-            with torch.no_grad():        
-                loss = hitachi_si(b_input_ids, 
+            b_labels = b_labels.to(device)        
+            loss = hitachi_si(b_input_ids, 
                         labels_BIO = b_labels,
                         lengths=b_lengths)
-                loss.requires_grad = True
-                print(f"Step {step} loss: {loss.item()}")
-                total_loss += loss.item()
+            loss.requires_grad = True
+            print(f"Step {step} loss: {loss.item()}")
+            total_loss += loss.item()
 
-                loss.backward()
-                print(f"Step {step} loss: {loss.item()}")
+            loss.backward()
+            print(f"Step {step} loss: {loss.item()}")
 
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)  # Gradient clipping
-                optimizer.step()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)  # Gradient clipping
+            optimizer.step()
 
 
 

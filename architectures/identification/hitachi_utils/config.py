@@ -9,7 +9,7 @@ BATCH_SIZE = 4
 NUM_ARTICLES = 5
 TAGGING_SCHEME = "BIO"
 LANGUAGE_MODEL = "BERT"
-LEARNING_RATE = 1e-5
+LEARNING_RATE = 3.5e-4
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

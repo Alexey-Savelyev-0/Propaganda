@@ -207,6 +207,7 @@ def get_PLM_layer_attention(sentence, model,c, s,tokenizer,avg_subtokens = True)
                 break    
         token_to_word_mapping[len(token_to_word_mapping)] = mapped_token_index
     token_to_word_mapping[len(token_to_word_mapping)] = len(spacy_sentence) - 1
+    # currently BERT is frozen
     with torch.no_grad():
         outputs = model(**inputs)
         hidden_states = outputs.hidden_states  # Tuple of shape (num_layers, batch_size, seq_len, hidden_dim)
