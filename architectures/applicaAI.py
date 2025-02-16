@@ -33,11 +33,11 @@ training_config = {
 
 
 import torch
-import identification
+import architectures.identification.applica_utils as applica_utils
 from tqdm import tqdm
 import numpy as np
 
-NUM_ARTICLES = identification.NUM_ARTICLES
+NUM_ARTICLES = applica_utils.NUM_ARTICLES
 
 def train_applicaai_si(model, train_dataloader,silver_dataloader, steps=60000, save_model=True):
     # train on gold data
@@ -64,7 +64,7 @@ def train_applicaai_si(model, train_dataloader,silver_dataloader, steps=60000, s
     # now using trained model, label silver data
     model.eval()
 
-    tokenizer = identification.tokenizer
+    tokenizer = applica_utils.tokenizer
     token_predictions = []
     all_token_ids = []
     all_sentences = []
@@ -98,31 +98,31 @@ def train_applicaai_si(model, train_dataloader,silver_dataloader, steps=60000, s
 
     
 def run_train():
-    TAGGING_SCHEME = identification.TAGGING_SCHEME
-    BATCH_SIZE = identification.BATCH_SIZE
+    TAGGING_SCHEME = applica_utils.TAGGING_SCHEME
+    BATCH_SIZE = applica_utils.BATCH_SIZE
     num_labels = 2 + int(TAGGING_SCHEME =="BIO") + 2 * int(TAGGING_SCHEME == "BIOE")
-    if identification.LANGUAGE_MODEL == "RoBERTa":
+    if applica_utils.LANGUAGE_MODEL == "RoBERTa":
         from transformers import RobertaForTokenClassification
         model = RobertaForTokenClassification.from_pretrained('roberta-base', num_labels=num_labels)
-    elif identification.LANGUAGE_MODEL == "RoBERTa-CRF":
+    elif applica_utils.LANGUAGE_MODEL == "RoBERTa-CRF":
         from transformers import RobertaForTokenClassification
         # for now use roberta base
         model_base = RobertaForTokenClassification.from_pretrained('roberta-base', num_labels=num_labels)
-        model = identification.RobertaCRF(model_base, num_labels)
+        model = applica_utils.RobertaCRF(model_base, num_labels)
     else:
         from transformers import BertForTokenClassification
         model = BertForTokenClassification.from_pretrained('bert-base-uncased', num_labels=num_labels)
-    gold_articles, article_ids = identification.read_articles('train-articles')
-    gold_spans = identification.read_spans()
+    gold_articles, article_ids = applica_utils.read_articles('train-articles')
+    gold_spans = applica_utils.read_spans()
     gold_indices = np.arange(NUM_ARTICLES)
 
-    silver_articles = identification.get_owt_articles()['text']
+    silver_articles = applica_utils.get_owt_articles()['text']
     silver_indices = np.arange(NUM_ARTICLES)
     silver_spans = [[] for _ in range(NUM_ARTICLES)]
 
     
-    train_dataloader, train_sentences, train_bert_examples = identification.get_data(gold_articles, gold_spans, gold_indices)
-    silver_dataloader, silver_sentences, silver_bert_examples = identification.get_data(silver_articles, silver_spans, silver_indices)
+    train_dataloader, train_sentences, train_bert_examples = applica_utils.get_data(gold_articles, gold_spans, gold_indices)
+    silver_dataloader, silver_sentences, silver_bert_examples = applica_utils.get_data(silver_articles, silver_spans, silver_indices)
     token_predictions, all_token_ids, all_sentences = train_applicaai_si(model, train_dataloader, silver_dataloader, steps=60000, save_model=True)
     print(token_predictions)
     return model

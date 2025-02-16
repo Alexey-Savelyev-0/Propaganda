@@ -8,7 +8,7 @@ import numpy as np
 from transformers import BertTokenizer, BertForTokenClassification
 from transformers import get_linear_schedule_with_warmup, AdamW
 #from torch import AdamW as AdamWnew
-import identification
+import identification.applica_utils as applica_utils
 
 def train(model, train_dataloader, eval_dataloader, epochs=5, save_model=False):
   max_grad_norm = 1.0
@@ -37,7 +37,7 @@ def train(model, train_dataloader, eval_dataloader, epochs=5, save_model=False):
     print("Train loss: {}".format(tr_loss/nb_tr_steps))
 
 
-    identification.get_score(model,
+    applica_utils.get_score(model,
         train_dataloader,
         train_sentences,
         train_bert_examples,
@@ -64,7 +64,7 @@ def train(model, train_dataloader, eval_dataloader, epochs=5, save_model=False):
     eval_loss = eval_loss/nb_eval_steps
     print("Validation loss: {}".format(eval_loss))
 
-    identification.get_score(model,
+    applica_utils.get_score(model,
         eval_dataloader,
         eval_sentences,
         eval_bert_examples,
@@ -79,11 +79,11 @@ def train(model, train_dataloader, eval_dataloader, epochs=5, save_model=False):
     time.sleep(1)
 
 
-articles, article_ids = identification.read_articles('train-articles')
-spans = identification.read_spans()
+articles, article_ids = applica_utils.read_articles('train-articles')
+spans = applica_utils.read_spans()
 NUM_ARTICLES = len(articles)
 
-NUM_ARTICLES = min(NUM_ARTICLES, identification.NUM_ARTICLES)
+NUM_ARTICLES = min(NUM_ARTICLES, applica_utils.NUM_ARTICLES)
 articles = articles[0:NUM_ARTICLES]
 spans = spans[0:NUM_ARTICLES]
 
@@ -96,24 +96,24 @@ print(train_indices)
 
 eval_indices = indices[int(0.9 * NUM_ARTICLES):]
 print(eval_indices)
-tokenizer = identification.tokenizer
-TAGGING_SCHEME = identification.TAGGING_SCHEME
-BATCH_SIZE = identification.BATCH_SIZE
+tokenizer = applica_utils.tokenizer
+TAGGING_SCHEME = applica_utils.TAGGING_SCHEME
+BATCH_SIZE = applica_utils.BATCH_SIZE
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-train_dataloader, train_sentences, train_bert_examples = identification.get_data(articles, spans, train_indices)
-eval_dataloader, eval_sentences, eval_bert_examples = identification.get_data(articles, spans, eval_indices)
+train_dataloader, train_sentences, train_bert_examples = applica_utils.get_data(articles, spans, train_indices)
+eval_dataloader, eval_sentences, eval_bert_examples = applica_utils.get_data(articles, spans, eval_indices)
 
 
 num_labels = 2 + int(TAGGING_SCHEME =="BIO") + 2 * int(TAGGING_SCHEME == "BIOE")
-if identification.LANGUAGE_MODEL == "RoBERTa":
+if applica_utils.LANGUAGE_MODEL == "RoBERTa":
   from transformers import RobertaForTokenClassification
   model = RobertaForTokenClassification.from_pretrained('roberta-base', num_labels=num_labels)
-elif identification.LANGUAGE_MODEL == "RoBERTa-CRF":
+elif applica_utils.LANGUAGE_MODEL == "RoBERTa-CRF":
   from transformers import RobertaForTokenClassification
   # for now use roberta base
   model_base = RobertaForTokenClassification.from_pretrained('roberta-base', num_labels=num_labels)
-  model = identification.RobertaCRF(model_base, num_labels)
+  model = applica_utils.RobertaCRF(model_base, num_labels)
 else:
   from transformers import BertForTokenClassification
   model = BertForTokenClassification.from_pretrained('bert-base-uncased', num_labels=num_labels)
