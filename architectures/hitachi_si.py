@@ -80,7 +80,6 @@ class HITACHI_SI(nn.Module):
 
             mask = torch.tensor((labels_BIO != -1), dtype=torch.bool, device=BIO_output.device)
             assert (mask[:, 0] == 1).all(), "Error: Some sequences have mask[:, 0] == 0!"  # Create mask for ignoring padded tokens
-            print("mask",mask)  
             crf_loss = -self.CRF(BIO_output, labels_BIO, mask=mask, reduction='mean' )  # Compute CRF loss
             return crf_loss
         else:  
@@ -124,6 +123,7 @@ class FFN_SLC(HITACHI_SI):
     
 
 def hitachi_si_train():
+    torch.autograd.set_detect_anomaly(True)
     hitachi_si = HITACHI_SI()
     articles, article_ids = identification.read_articles("train-articles")    
     spans = identification.read_spans()
@@ -132,27 +132,31 @@ def hitachi_si_train():
     indices = np.arange(identification.NUM_ARTICLES)
     train_indices = indices[:int(0.9 * identification.NUM_ARTICLES)]
     dataloader = identification.get_data_hitachi(articles, spans, train_indices, PLM = hitachi_si.PLM, s = hitachi_si.s, c = hitachi_si.c)
+    parameters = list(hitachi_si.named_parameters())
     optimizer = optim.AdamW(hitachi_si.parameters(), lr=identification.LEARNING_RATE, weight_decay=1e-2)
-    epochs = 1
     total_loss = 0
-    for epoch_i in range(0, epochs):
-        hitachi_si.train()
+    hitachi_si.train()
+    for epoch_i in range(0, identification.EPOCHS):
+        total_loss = 0
         for step, batch in enumerate(dataloader):
+            
             b_input_ids, b_lengths, b_labels = batch
             b_input_ids = b_input_ids.to(device)
             b_labels = b_labels.to(device)        
             loss = hitachi_si(b_input_ids, 
                         labels_BIO = b_labels,
                         lengths=b_lengths)
-            loss.requires_grad = True
+            #loss.requires_grad = True
             print(f"Step {step} loss: {loss.item()}")
-            total_loss += loss.item()
+            total_loss += loss.detach().item()
+            # not a fan, no idea why retain_graph needs to be true but we ball
+            loss.backward(retain_graph=True)
 
-            loss.backward()
-            print(f"Step {step} loss: {loss.item()}")
-
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)  # Gradient clipping
+            torch.nn.utils.clip_grad_norm_(hitachi_si.parameters(), max_norm=5.0)  # Gradient clipping
             optimizer.step()
+            optimizer.zero_grad()
+            hitachi_si.zero_grad()
+
 
 
 

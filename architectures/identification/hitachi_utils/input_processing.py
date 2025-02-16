@@ -168,6 +168,9 @@ def get_list_from_dict(num_sentences, word_offsets):
 
   return li
 
+def test(sentence, model,c, s,tokenizer,avg_subtokens = True):
+  return get_PLM_layer_attention(sentence, model,c, s,tokenizer,avg_subtokens)
+
 def get_PLM_layer_attention(sentence, model,c, s,tokenizer,avg_subtokens = True):
     """ To obtain input representations, we provide a layer-wise attention to fuse the outputs of PLM layers.
     To obtain the ith word, we sum PLM(i,j) over j, j being the layer index. In this sum
@@ -223,11 +226,13 @@ def get_PLM_layer_attention(sentence, model,c, s,tokenizer,avg_subtokens = True)
 
     if avg_subtokens == True:
         averaged_hidden_states = torch.zeros((num_layers, batch_size, num_words, hidden_dim), device=hidden_states.device)
+        
         word_indices = torch.tensor(list(token_to_word_mapping.values()), device=hidden_states.device)
         word_counts = torch.zeros((batch_size, num_words, 1), device=hidden_states.device)
-        averaged_hidden_states.scatter_add_(2, word_indices.view(1, 1, -1, 1).expand(num_layers, batch_size, -1, hidden_dim), hidden_states)
+        #averaged_hidden_states.scatter_add_(2, word_indices.view(1, 1, -1, 1).expand(num_layers, batch_size, -1, hidden_dim), hidden_states)
+        averaged_hidden_states = averaged_hidden_states.scatter_add(2, word_indices.view(1, 1, -1, 1).expand(num_layers, batch_size, -1, hidden_dim), hidden_states)
         ones = torch.ones((batch_size, seq_len, 1), device=hidden_states.device)
-        word_counts.scatter_add_(1, word_indices.view(1, -1, 1).expand(batch_size, -1, 1), ones)
+        word_counts = word_counts.scatter_add(1, word_indices.view(1, -1, 1).expand(batch_size, -1, 1), ones)
         word_counts[word_counts == 0] = 1 
         averaged_hidden_states /= word_counts.unsqueeze(0)
         hidden_states=averaged_hidden_states
@@ -244,8 +249,12 @@ def get_PLM_layer_attention(sentence, model,c, s,tokenizer,avg_subtokens = True)
     
     # for every token i, we go through layers j, multiplyingsoftmax(s) 
     fused_embeddings = torch.sum(attn_weights * hidden_states, dim=0)
-
-    return c * fused_embeddings  # Apply scaling factor
+    # I don't know why this is required
+    test = c.clone()
+    output = torch.mul(fused_embeddings, test)
+    return fused_embeddings  # Apply scaling factor
+    return output
+    return c*fused_embeddings  # Apply scaling factor
 
     
 
@@ -308,6 +317,7 @@ def get_token_representation(sentence:list[str],model,s,c,tokenizer = config.tok
     ### assume sentence is already tokenized
     """Token representation is obtained by concatting the plm representation, the PoS tag, and NE tag."""
     plm = get_PLM_layer_attention(sentence,model=model,tokenizer=tokenizer, s=s, c=c)
+    #plm = test(sentence,model,c,s,tokenizer)
     ner, pos = get_special_tags(sentence)
     output = torch.cat((plm, ner, pos),dim=-1)
     # flatten out to 2d, as first dimension is always 1
