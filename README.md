@@ -1,0 +1,1 @@
+An ablation study of the top performing models for Computational Propaganda Detection in SemEval2020 Task 11. The models here are the both Span Identification, and Task Classification of Hitachi and ApplicaAI.
