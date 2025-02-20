@@ -10,6 +10,7 @@ from sklearn.model_selection import train_test_split
 import identification.hitachi_utils as identification
 from torch.nn.utils.rnn import pack_padded_sequence
 from torch import optim
+import classification.hitachi_utils as classification
 device = identification.device
 NLP = spacy.load("en_core_web_sm")
 
@@ -82,6 +83,9 @@ class HITACHI_SI(nn.Module):
             assert (mask[:, 0] == 1).all(), "Error: Some sequences have mask[:, 0] == 0!"  # Create mask for ignoring padded tokens
             crf_loss = -self.CRF(BIO_output, labels_BIO, mask=mask, reduction='mean' )  # Compute CRF loss
             return crf_loss
+        
+        if labels_TC is not None:  # Training mode (return loss)
+            tc=self.FFN_TC(lstm_output)
         else:  
             predicted_labels = self.CRF.decode(BIO_output)  
             return predicted_labels
@@ -125,8 +129,29 @@ class FFN_SLC(HITACHI_SI):
 def hitachi_si_train():
     torch.autograd.set_detect_anomaly(True)
     hitachi_si = HITACHI_SI()
-    articles, article_ids = identification.read_articles("train-articles")    
+    articles, article_ids = identification.read_articles("train-articles")
+    """ note that the spans outlined in the classification section are 
+    similar but different-> additional ones are added in the classification section.
+    Therefore only use spans/techniques if span exists in identification section"""
+    
     spans = identification.read_spans()
+    tc_spans, techniques = classification.read_spans()
+    filtered_techniques = []
+    for i in range(len(articles)):
+        filtered_techniques.append([])
+        for j in range(len(tc_spans[i])):
+            if tc_spans[i][j] in spans[i]:
+                filtered_techniques[i].append(techniques[i][j])
+            
+    for i in range(len(filtered_techniques)):
+        if len(filtered_techniques[i]) != len(spans[i]):
+            print("Error: Length of filtered techniques and spans do not match")
+            print(f"Length of filtered techniques: {len(filtered_techniques[i])}")
+            print(f"Length of spans: {len(spans[i])}")
+            print(i)
+            print(techniques[i])
+            print(spans[i])
+            print(tc_spans[i])
     articles = articles[0:identification.NUM_ARTICLES]
     spans = spans[0:identification.NUM_ARTICLES]
     indices = np.arange(identification.NUM_ARTICLES)

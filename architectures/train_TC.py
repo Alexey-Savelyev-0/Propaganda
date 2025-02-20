@@ -7,8 +7,8 @@ import random
 import time
 import datetime
 import pprint
-
-import classification
+import applicaAI_tc
+import classification.applica_utils as classification
 
 from sklearn.model_selection import train_test_split
 
@@ -62,7 +62,10 @@ else:
       num_labels = len(classification.distinct_techniques),
       output_attentions = False, 
       output_hidden_states = False,
+      
   )
+
+model = applicaAI_tc.EnsembleModel(15)
 if torch.cuda.is_available():
   print('Using GPU')
   model.cuda()
