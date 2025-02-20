@@ -7,24 +7,30 @@ from torch.nn.utils.rnn import pack_padded_sequence, pack_sequence, pad_sequence
 import torch.nn.functional as F
 from transformers import BertTokenizerFast
 
-def get_data_hitachi(articles: list[str], spans: list[list[int]], indices: list[int],PLM, s: torch.Tensor, c: torch.Tensor):
+device = config.device
+
+def get_data_hitachi(articles: list[str], spans: list[list[int]],techniques: list[list[str]], indices: list[int],PLM, s: torch.Tensor, c: torch.Tensor):
     """
     ??
     """
     sentences = []
     propaganda_labels = []
     masks = []
+    unformatted_techniques = [[config.distinct_techniques[technique] for technique in technique_list] for technique_list in techniques]
+    propaganda_techniques = []
     for index in indices:
         article = articles[index]
         span = spans[index]
-        sentence_tensors, _, cur_propaganda_labels, cur_masks= get_sentence_inputs(article,model = PLM,s=s,c=c, span=span, article_index=index)
+        article_techniques = unformatted_techniques[index]
+        sentence_tensors, _, cur_propaganda_labels,cur_propaganda_techniques, cur_masks= get_sentence_inputs(article,model = PLM,s=s,c=c, span=span, article_index=index,input_techniques =article_techniques)
         sentences+=sentence_tensors
         propaganda_labels+=cur_propaganda_labels
+        propaganda_techniques+=cur_propaganda_techniques
         masks+=cur_masks
 
 
     ## get dataloader
-    dataloader = get_padded_dataloader(sentences,propaganda_labels)
+    dataloader = get_padded_dataloader(sentences,propaganda_labels,propaganda_techniques)
     return dataloader
 
 def convert_sentence_to_input_feature_hitachi(sentence, sentence_labels, tokenizer, add_cls_sep=True, max_seq_len=256,model=None):
@@ -61,7 +67,7 @@ def is_whitespace(c):
     return True
   return False
 
-def get_sentence_inputs(article, model, s, c,tokenizer=config.tokenizer,  span=None, article_index=None):
+def get_sentence_inputs(article, model, s, c,tokenizer=config.tokenizer,  span=None, article_index=None,input_techniques = None):
   doc_tokens = [] # builds up to a word
   char_to_word_offset = []
   all_sentence_tokens = [] # actually all sentence tokens for particular article. #TODO rename
@@ -75,7 +81,6 @@ def get_sentence_inputs(article, model, s, c,tokenizer=config.tokenizer,  span=N
   sentences = article.split("\n")
   article_char_offset = 0  
   char_to_word_offset = [None] * len(article)
-  print(len(article))
   sentence_tensors = []
   input_masks = []
   blank_sentences = 0
@@ -113,49 +118,59 @@ def get_sentence_inputs(article, model, s, c,tokenizer=config.tokenizer,  span=N
     return sentence_tensors
 
   current_propaganda_labels = []
+  current_technique_labels= []
   for doc_tokens in all_sentence_tokens:
     current_propaganda_labels.append([0] * len(doc_tokens))
+    current_technique_labels.append([0] * len(doc_tokens))
 
   start_positions = []
   end_positions = []
-
-  for sp in span:
+  techniques = []
+  for i,sp in enumerate(span):
     
     if (char_to_word_offset[sp[0]][0] != char_to_word_offset[sp[1]-1][0]):
       # if the sentence of the character at the beggining of the span isn't the same as sentence of the character at the end of the span.
       l1 = char_to_word_offset[sp[0]][0] # sentence 1
       l2 = char_to_word_offset[sp[1] - 1][0] # sentence 2
-      start_positions.append(char_to_word_offset[sp[0]]) 
+      start_positions.append(char_to_word_offset[sp[0]])
+      techniques.append(input_techniques[i]) 
       # add (sentence, index of curr word) of starting word for span.
       end_positions.append((l1, len(all_sentence_tokens[l1])-1))
       # add (sentence 1, lenth of sentence 1) i.e say that the span goes to the end of the sentence.
       l1 += 1
       while(l1 < l2):
         start_positions.append((l1, 0)) # add another span starting at next sentence from sentence 1
+        techniques.append(input_techniques[i])
         end_positions.append((l1, len(all_sentence_tokens[l1])-1))
         l1 += 1
         # keep filling sentences with spans until sentence 2 reached.
       start_positions.append((l2, 0)) 
+      techniques.append(input_techniques[i])
       end_positions.append(char_to_word_offset[sp[1]-1])  
       continue
     # add whichever character is at the outlined char
     start_positions.append(char_to_word_offset[sp[0]])
     end_positions.append(char_to_word_offset[sp[1]-1])
+    techniques.append(input_techniques[i])
 
   for i, _ in enumerate(start_positions):
     assert start_positions[i][0] == end_positions[i][0]
     if config.TAGGING_SCHEME == "BIO":
       current_propaganda_labels[start_positions[i][0]][start_positions[i][1]] = 2 # Begin label
+      if techniques != None:
+        current_technique_labels[start_positions[i][0]][start_positions[i][1]] = techniques[i]
       if start_positions[i][1] < end_positions[i][1]:
         current_propaganda_labels[start_positions[i][0]][start_positions[i][1] + 1 : end_positions[i][1] + 1] = [1] * (end_positions[i][1] - start_positions[i][1])
+        current_technique_labels[start_positions[i][0]][start_positions[i][1] + 1 : end_positions[i][1] + 1] = [techniques[i]] * (end_positions[i][1] - start_positions[i][1])
 
   # prepend 0s to each propaganda label span
   current_propaganda_labels = [[0] + s + [0] for s in current_propaganda_labels]
+  current_technique_labels = [[0] + s + [0] for s in current_technique_labels]
   # pad labels with 0s to max_seq_len
   #for i in range(len(current_propaganda_labels)):
     #current_propaganda_labels[i] += [-100] * (config.sentence_len - len(current_propaganda_labels[i]))
   
-  return sentence_tensors, sentences, current_propaganda_labels, input_masks
+  return sentence_tensors, sentences, current_propaganda_labels,current_technique_labels,input_masks, 
   
 
 def get_list_from_dict(num_sentences, word_offsets):
@@ -211,7 +226,10 @@ def get_PLM_layer_attention(sentence, model,c, s,tokenizer,avg_subtokens = True)
         token_to_word_mapping[len(token_to_word_mapping)] = mapped_token_index
     token_to_word_mapping[len(token_to_word_mapping)] = len(spacy_sentence) - 1
     # currently BERT is frozen
+    device = next(model.parameters()).device
+    inputs = {key: value.to(device) for key,value in inputs.items()}
     with torch.no_grad():
+        
         outputs = model(**inputs)
         hidden_states = outputs.hidden_states  # Tuple of shape (num_layers, batch_size, seq_len, hidden_dim)
 
@@ -317,8 +335,11 @@ def get_token_representation(sentence:list[str],model,s,c,tokenizer = config.tok
     ### assume sentence is already tokenized
     """Token representation is obtained by concatting the plm representation, the PoS tag, and NE tag."""
     plm = get_PLM_layer_attention(sentence,model=model,tokenizer=tokenizer, s=s, c=c)
-    #plm = test(sentence,model,c,s,tokenizer)
+    
     ner, pos = get_special_tags(sentence)
+    plm = plm.to(device)
+    ner = ner.to(device)
+    pos = pos.to(device)
     output = torch.cat((plm, ner, pos),dim=-1)
     # flatten out to 2d, as first dimension is always 1
     
@@ -336,9 +357,7 @@ def get_dataloader(representations, labels, masks):
     for sentence in representations
     ]
     representations = torch.stack(padded_representations,dim=0)
-    print(representations.shape)
     labels = torch.tensor(labels)
-    print(labels.shape)
     tensor_data = TensorDataset(representations, labels)
     dataloader = DataLoader(tensor_data, batch_size=config.BATCH_SIZE)
     return dataloader
@@ -349,30 +368,35 @@ def get_packed_sequence(representations, labels):
     # F.pad(sentence, (0, 0, 0, 256 - sentence.shape[0]))
     # for sentence in representations
     # ]
-    print(representations[0].shape)
     packed_sequence = pack_sequence(representations,enforce_sorted=False)
     print(f"Packed batch lengths: {packed_sequence.batch_sizes}")
     return packed_sequence, labels
 
 def collate_fn(batch):
     """Collate function to pad sequences and compute lengths."""
-    representations, labels = zip(*batch)
+    representations, labels,techniques = zip(*batch)
     
     # Compute sequence lengths before padding
     lengths = torch.tensor([rep.shape[0] for rep in representations])
     labels = [torch.tensor(label) for label in labels]
+    techniques = [torch.tensor(technique) for technique in techniques]
     # Pad sequences to the maximum length in the batch
     padded_representations = pad_sequence(representations, batch_first=True, padding_value=0.0)
     # Pad labels (if needed)
     padded_labels = pad_sequence(labels, batch_first=True, padding_value=-1)  # Use -1 for ignored labels
+    padded_techniques = pad_sequence(techniques,batch_first=True,padding_value=-1)
     # stack labels
     assert padded_representations.shape[0] == padded_labels.shape[0]
     assert padded_representations.shape[1] == padded_labels.shape[1]
 
-    return padded_representations, lengths, padded_labels
+    return padded_representations, lengths, padded_labels, padded_techniques
 
-def get_padded_dataloader(representations, labels, batch_size=config.BATCH_SIZE):
+def get_padded_dataloader(representations, labels, techniques=None, batch_size=config.BATCH_SIZE):
     """Returns a DataLoader that provides padded sequences."""
-    dataset = list(zip(representations, labels))
+    if techniques == None:
+      dataset = list(zip(representations, labels))
+    else:
+       dataset= list(zip(representations,labels,techniques
+       ))
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
     return dataloader

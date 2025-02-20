@@ -2,6 +2,8 @@ import transformers
 import torch
 from torch import nn
 import numpy as np
+import datetime
+import os
 import spacy
 # import crf
 import torch.nn.functional as F
@@ -25,9 +27,9 @@ The tasks are as follows:
 2. Sentence Level Binary Classification
 """
 
-class FFN_TC(nn.Module):
+class SLC(nn.Module):
     def __init__(self, input_dim, hidden_dim=200, output_dim=15):
-        super(FFN_TC, self).__init__()
+        super(SLC, self).__init__()
         self.FFN = nn.Sequential(
             nn.Linear(input_dim, hidden_dim), # hidden layer
             nn.ReLU(),
@@ -44,7 +46,7 @@ class FFN_TC(nn.Module):
 
 
 class HITACHI_SI(nn.Module):
-    def __init__(self,PLM="BERT", input_dim=840, hidden_dim=600, output_dim=15):
+    def __init__(self,PLM=identification.LANGUAGE_MODEL, input_dim=840, hidden_dim=600, output_dim=15):
         super(HITACHI_SI, self).__init__()
         if PLM == "BERT":
             self.PLM = transformers.BertModel.from_pretrained('bert-base-uncased',output_hidden_states=True)
@@ -60,6 +62,7 @@ class HITACHI_SI(nn.Module):
 
         self.FFN_BIO = nn.Linear(hidden_dim*2, 3)
         self.FFN_TC = nn.Linear(input_dim, hidden_dim)
+        self.SLC = SLC()
         # for auxillary task2 we need another similar model to HITACHI_SI to predict which sentences to train on
 
         self.CRF = CRF(3,batch_first=True)
@@ -68,12 +71,10 @@ class HITACHI_SI(nn.Module):
         # before this is even ran, data should be preprocessed via get_token_representation
         # input of shape (batch_size, max_seq_len, input_dim)
         # labels is list of tensors of BIO tags
-        print("input_ids",input_ids.shape)
-        print("lengths",lengths.shape)
-        print("labels_BIO",labels_BIO.shape)
         packed_input = pack_padded_sequence(input_ids, lengths.cpu(), batch_first=True, enforce_sorted=False)
         lstm_output, _ = self.BiLSTM(packed_input)
         lstm_output, _ = torch.nn.utils.rnn.pad_packed_sequence(lstm_output, batch_first=True)
+
         BIO_output = self.FFN_BIO(lstm_output)
         if labels_BIO is not None:  # Training mode (return loss)
             if isinstance(labels_BIO, list):  # Convert list to tensor
@@ -84,7 +85,7 @@ class HITACHI_SI(nn.Module):
             crf_loss = -self.CRF(BIO_output, labels_BIO, mask=mask, reduction='mean' )  # Compute CRF loss
             return crf_loss
         
-        if labels_TC is not None:  # Training mode (return loss)
+        if labels_TC is not None and classification.TLC == True:  # Training mode (return loss)
             tc=self.FFN_TC(lstm_output)
         else:  
             predicted_labels = self.CRF.decode(BIO_output)  
@@ -146,6 +147,12 @@ def get_si_techniques(si_spans,tc_spans_techniques):
 def hitachi_si_train():
     torch.autograd.set_detect_anomaly(True)
     hitachi_si = HITACHI_SI()
+
+    if torch.cuda.is_available():
+        hitachi_si.cuda()
+        #inputs = inputs.cuda() 
+        #target = target.cuda()
+
     articles, article_ids = identification.read_articles("train-articles")
     """ note that the spans outlined in the classification section are 
     similar but different-> additional ones are added in the classification section.
@@ -162,34 +169,40 @@ def hitachi_si_train():
 
 
     articles = articles[0:identification.NUM_ARTICLES]
+    techniques = techniques[0:identification.NUM_ARTICLES]
     spans = spans[0:identification.NUM_ARTICLES]
     indices = np.arange(identification.NUM_ARTICLES)
     train_indices = indices[:int(0.9 * identification.NUM_ARTICLES)]
-    dataloader = identification.get_data_hitachi(articles, spans, train_indices, PLM = hitachi_si.PLM, s = hitachi_si.s, c = hitachi_si.c)
-    parameters = list(hitachi_si.named_parameters())
+    dataloader = identification.get_data_hitachi(articles, spans, techniques, train_indices, PLM = hitachi_si.PLM, s = hitachi_si.s, c = hitachi_si.c)
     optimizer = optim.AdamW(hitachi_si.parameters(), lr=identification.LEARNING_RATE, weight_decay=1e-2)
     total_loss = 0
+    
     hitachi_si.train()
     for epoch_i in range(0, identification.EPOCHS):
-        total_loss = 0
+        total_loss,steps = (0,0)
+        length = len(dataloader)
         for step, batch in enumerate(dataloader):
             
-            b_input_ids, b_lengths, b_labels = batch
+            b_input_ids, b_lengths, b_labels, b_techniques = batch
             b_input_ids = b_input_ids.to(device)
             b_labels = b_labels.to(device)        
             loss = hitachi_si(b_input_ids, 
                         labels_BIO = b_labels,
                         lengths=b_lengths)
-            #loss.requires_grad = True
-            print(f"Step {step} loss: {loss.item()}")
             total_loss += loss.detach().item()
             # not a fan, no idea why retain_graph needs to be true but we ball
             loss.backward(retain_graph=True)
-
             torch.nn.utils.clip_grad_norm_(hitachi_si.parameters(), max_norm=5.0)  # Gradient clipping
             optimizer.step()
             optimizer.zero_grad()
-            hitachi_si.zero_grad()
+            hitachi_si.zero_grad(
+            )
+            steps+=1
+        print(f"Epoch{epoch_i}: Avg Loss{total_loss/steps}")
+    if identification.SAVE_MODEL:
+      model_name = 'hitachi_si_' + str(datetime.datetime.now()) + '.pt'
+      torch.save(model, os.path.join(identification.model_dir, model_name))
+      print("Model saved:", model_name)
 
 
 

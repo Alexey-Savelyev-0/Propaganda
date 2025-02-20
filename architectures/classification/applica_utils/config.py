@@ -1,6 +1,6 @@
 import os
 import torch
-from transformers import BertTokenizerFast
+from transformers import BertTokenizerFast, RobertaForTokenClassification
 import transformers
 home_dir = "/dcs/22/u2211596/3_UG/3rd_Year_Project/main/Propaganda"
 data_dir = os.path.join(home_dir, "datasets")
