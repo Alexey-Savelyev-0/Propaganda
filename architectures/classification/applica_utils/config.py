@@ -3,10 +3,9 @@ import torch
 from transformers import BertTokenizerFast
 import transformers
 # home_dir = "gdrive/My Drive/propaganda_detection"
-home_dir = "C:/CS/3rd_Year_Project/Propaganda-detection-experiments/main"
-data_dir= r"C:\\CS\\3rd_Year_Project\\Propaganda-detection-experiments\\main\\datasets"
-model_dir=  r"C:\\CS\\3rd_Year_Project\\Propaganda-detection-experiments\\main\\architectures\\model_dir"
-
+home_dir = "/dcs/22/u2211596/3_UG/3rd_Year_Project/main/Propaganda"
+data_dir = os.path.join(home_dir, "datasets")
+model_dir = os.path.join(home_dir, "architectures", "model_dir")
 # distinct_techniques = list(set([y for x in techniques for y in x])) # idx to tag
 distinct_techniques = [
  'Flag-Waving',

@@ -121,6 +121,23 @@ class FFN_SLC(HITACHI_SI):
 
 
 
+def get_si_techniques(si_spans,tc_spans_techniques):
+    """
+    Get techniques for the spans described in SI training data
+    i: article index
+    j: span index
+
+    returns: si_techniques, [[str]]
+    """
+    si_techniques=[]
+    for i in range(len(si_spans)):
+        si_techniques.append([0]*len(si_spans[i]))
+        for j in range(len(si_spans[i])):
+            if (i,si_spans[i][j]) in tc_spans_techniques:
+                si_techniques[i][j] = tc_spans_techniques[(i,si_spans[i][j])]
+    for i in range(len(si_spans)):
+        assert len(si_techniques[i]) == len(si_spans[i])
+    return si_techniques
 
 
 
@@ -136,22 +153,14 @@ def hitachi_si_train():
     
     spans = identification.read_spans()
     tc_spans, techniques = classification.read_spans()
-    filtered_techniques = []
-    for i in range(len(articles)):
-        filtered_techniques.append([])
+    tc_spans_techniques = {}
+    for i in range(len(tc_spans)):
         for j in range(len(tc_spans[i])):
-            if tc_spans[i][j] in spans[i]:
-                filtered_techniques[i].append(techniques[i][j])
-            
-    for i in range(len(filtered_techniques)):
-        if len(filtered_techniques[i]) != len(spans[i]):
-            print("Error: Length of filtered techniques and spans do not match")
-            print(f"Length of filtered techniques: {len(filtered_techniques[i])}")
-            print(f"Length of spans: {len(spans[i])}")
-            print(i)
-            print(techniques[i])
-            print(spans[i])
-            print(tc_spans[i])
+            tc_spans_techniques[(i,tc_spans[i][j])] = techniques[i][j]
+        
+    techniques = get_si_techniques(spans,tc_spans_techniques)
+
+
     articles = articles[0:identification.NUM_ARTICLES]
     spans = spans[0:identification.NUM_ARTICLES]
     indices = np.arange(identification.NUM_ARTICLES)
@@ -181,6 +190,7 @@ def hitachi_si_train():
             optimizer.step()
             optimizer.zero_grad()
             hitachi_si.zero_grad()
+
 
 
 

@@ -8,6 +8,7 @@ data_dir = config.data_dir
 def read_articles(article_dir):
   articles = []
   train_dir = os.path.join(data_dir, article_dir)
+  print(os.getcwd())
   for filename in sorted(os.listdir(train_dir)):
     myfile = open(os.path.join(train_dir, filename),encoding="utf8")
     article = myfile.read()
