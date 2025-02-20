@@ -3,7 +3,6 @@ import torch
 from transformers import BertTokenizerFast
 import transformers
 
-"""torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)  # Gradient clipping"""
 
 BATCH_SIZE = 4
 NUM_ARTICLES = 2
@@ -11,18 +10,24 @@ TAGGING_SCHEME = "BIO"
 LANGUAGE_MODEL = "BERT"
 LEARNING_RATE = 3.5e-4
 EPOCHS = 4
+SLTC = False
+SLC = False
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 
-if LANGUAGE_MODEL == "RoBERTa" or LANGUAGE_MODEL == "RoBERTa-CRF":
+if LANGUAGE_MODEL == "RoBERTa":
   from transformers import RobertaTokenizer
   tokenizer = RobertaTokenizer.from_pretrained('roberta-base', lower_case=True)
-else:
+if LANGUAGE_MODEL == "BERT":
   from transformers import BertTokenizer
   tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased', lower_case=True)
   model = transformers.BertModel.from_pretrained('bert-base-uncased',output_hidden_states=True)
   sentence_len = 256
+
+else:
+  raise Exception("Unknown LLM For Hitachi SI detected")
 
 
 
