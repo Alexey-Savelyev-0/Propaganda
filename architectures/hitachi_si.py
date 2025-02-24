@@ -13,6 +13,7 @@ import identification.hitachi_utils as identification
 from torch.nn.utils.rnn import pack_padded_sequence
 from torch import optim
 import classification.hitachi_utils as classification
+import identification.applica_utils as applica_utils
 device = identification.device
 NLP = spacy.load("en_core_web_sm")
 
@@ -28,7 +29,7 @@ The tasks are as follows:
 """
 
 class SLC(nn.Module):
-    def __init__(self, input_dim, hidden_dim=200, output_dim=15):
+    def __init__(self,PLM=identification.LANGUAGE_MODEL, input_dim=840, hidden_dim=600, output_dim=15):
         super(SLC, self).__init__()
         self.FFN = nn.Sequential(
             nn.Linear(input_dim, hidden_dim), # hidden layer
@@ -36,11 +37,29 @@ class SLC(nn.Module):
             nn.Linear(hidden_dim, output_dim) #output
             
         )
+        self.BiLSTM = nn.LSTM(input_dim, hidden_dim, bidirectional=True,batch_first=True)
         crf = CRF(output_dim)
-    def forward(self, x):
-        nn_output = self.FFN(x)
-        crf_output = self.crf(nn_output)
-        return crf_output
+    def forward(self, input_ids, lengths, pos_features, labels_BIO=None):
+        packed_input = pack_padded_sequence(input_ids, lengths.cpu(), batch_first=True, enforce_sorted=False)
+        lstm_output, _ = self.BiLSTM(packed_input)
+        lstm_output, _ = pad_packed_sequence(lstm_output, batch_first=True)
+        
+        # Extract BoS token hidden state (first token)
+        bos_output = lstm_output[:, 0, :]  # Shape: (batch_size, hidden_dim * 2)
+        
+        # Concatenate structural features (e.g., positional & length info)
+        bos_output = torch.cat((bos_output, pos_features), dim=1)
+        
+        # Pass through FFN
+        ff_output = self.FFN(bos_output)  # Shape: (batch_size, hidden_dim)
+        
+        # Compute the final classification output using v and b
+        cls_output = torch.sigmoid(self.v(ff_output))  # Shape: (batch_size, 1)
+        
+        # CRF layer for sequence labeling
+        bio_logits = self.crf(lstm_output)
+        
+        return cls_output, bio_logits
 
 
 
@@ -74,7 +93,7 @@ class HITACHI_SI(nn.Module):
         packed_input = pack_padded_sequence(input_ids, lengths.cpu(), batch_first=True, enforce_sorted=False)
         lstm_output, _ = self.BiLSTM(packed_input)
         lstm_output, _ = torch.nn.utils.rnn.pad_packed_sequence(lstm_output, batch_first=True)
-
+        
         BIO_output = self.FFN_BIO(lstm_output)
         if labels_BIO is not None:  # Training mode (return loss)
             if isinstance(labels_BIO, list):  # Convert list to tensor
@@ -167,13 +186,20 @@ def hitachi_si_train():
         
     techniques = get_si_techniques(spans,tc_spans_techniques)
 
+    
 
     articles = articles[0:identification.NUM_ARTICLES]
     techniques = techniques[0:identification.NUM_ARTICLES]
     spans = spans[0:identification.NUM_ARTICLES]
     indices = np.arange(identification.NUM_ARTICLES)
+    eval_indices = indices[int(0.9 * identification.NUM_ARTICLES):]
     train_indices = indices[:int(0.9 * identification.NUM_ARTICLES)]
+
+    train_dataloader, train_sentences, train_bert_examples = applica_utils.get_data(articles, spans, train_indices)
+    eval_dataloader, eval_sentences, eval_bert_examples = applica_utils.get_data(articles, spans, eval_indices)
+
     dataloader = identification.get_data_hitachi(articles, spans, techniques, train_indices, PLM = hitachi_si.PLM, s = hitachi_si.s, c = hitachi_si.c)
+    eval_dataloader = applica_utils.get_data(articles, spans, eval_indices)
     optimizer = optim.AdamW(hitachi_si.parameters(), lr=identification.LEARNING_RATE, weight_decay=1e-2)
     total_loss = 0
     
@@ -199,6 +225,14 @@ def hitachi_si_train():
             )
             steps+=1
         print(f"Epoch{epoch_i}: Avg Loss{total_loss/steps}")
+
+    applica_utils.get_score(hitachi_si,
+        eval_dataloader,
+        eval_sentences,
+        eval_bert_examples,
+        mode="eval",
+        article_ids=article_ids,
+        indices=eval_indices)
     if identification.SAVE_MODEL:
       model_name = 'hitachi_si_' + str(datetime.datetime.now()) + '.pt'
       torch.save(model, os.path.join(identification.model_dir, model_name))

@@ -4,11 +4,12 @@ from tqdm import tqdm, trange
 
 import torch
 import numpy as np
-
+import os
 from transformers import BertTokenizer, BertForTokenClassification
 from transformers import get_linear_schedule_with_warmup, AdamW
 #from torch import AdamW as AdamWnew
 import identification.applica_utils as applica_utils
+
 
 def train(model, train_dataloader, eval_dataloader, epochs=5, save_model=False):
   max_grad_norm = 1.0
@@ -73,7 +74,7 @@ def train(model, train_dataloader, eval_dataloader, epochs=5, save_model=False):
         indices=eval_indices)
     if save_model:
       model_name = 'model_' + str(datetime.datetime.now()) + '.pt'
-      torch.save(model, os.path.join(model_dir, model_name))
+      torch.save(model, os.path.join(applica_utils.model_dir, model_name))
       print("Model saved:", model_name)
     print()
     time.sleep(1)
@@ -83,7 +84,7 @@ articles, article_ids = applica_utils.read_articles('train-articles')
 spans = applica_utils.read_spans()
 NUM_ARTICLES = len(articles)
 
-NUM_ARTICLES = min(NUM_ARTICLES, applica_utils.NUM_ARTICLES)
+NUM_ARTICLES = min(NUM_ARTICLES, 5)
 articles = articles[0:NUM_ARTICLES]
 spans = spans[0:NUM_ARTICLES]
 

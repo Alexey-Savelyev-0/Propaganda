@@ -4,11 +4,11 @@ from transformers import BertTokenizerFast, RobertaTokenizer
 import transformers
 
 BATCH_SIZE = 6
-NUM_ARTICLES = 100
+NUM_ARTICLES = 5
 TAGGING_SCHEME = "BIO"
-LANGUAGE_MODEL = "RoBERTa"
+LANGUAGE_MODEL = "BERT"
 LEARNING_RATE = 3.5e-4
-EPOCHS = 4
+EPOCHS = 1
 TLC = False
 SLC = False
 SAVE_MODEL = True
@@ -83,7 +83,8 @@ else:
 
 #data_dir= r"\\dcs\\22\\u2211596\\3_UG\\3rd_Year_Project\\main\\Propaganda\\datasets"
 #model_dir=  r"\\dcs\\22\\u2211596\\3_UG\\3rd_Year_Project\\main\\Propaganda\\architectures\\model_dir"
-home_dir = "/dcs/22/u2211596/3_UG/3rd_Year_Project/main/Propaganda"
+home_dir = "C:/CS/3rd_Year_Project/Propaganda-detection-experiments/main"
+#home_dir = "/dcs/22/u2211596/3_UG/3rd_Year_Project/main/Propaganda"
 data_dir = os.path.join(home_dir, "datasets")
 model_dir = os.path.join(home_dir, "model_dir")
 
