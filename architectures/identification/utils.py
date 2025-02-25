@@ -2,7 +2,7 @@ import numpy as np
 import os
 import csv
 
-from . import config
+from .hitachi_utils import config
 data_dir = config.data_dir
 
 def read_articles(article_dir):

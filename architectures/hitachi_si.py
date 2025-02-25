@@ -9,11 +9,11 @@ import spacy
 import torch.nn.functional as F
 from torchcrf import CRF
 from sklearn.model_selection import train_test_split
-import identification.hitachi_utils as identification
-from torch.nn.utils.rnn import pack_padded_sequence
+import identification.hitachi_utils as hitachi_utils
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torch import optim
 import classification.hitachi_utils as classification
-import identification.applica_utils as applica_utils
+import identification
 device = identification.device
 NLP = spacy.load("en_core_web_sm")
 
@@ -29,7 +29,7 @@ The tasks are as follows:
 """
 
 class SLC(nn.Module):
-    def __init__(self,PLM=identification.LANGUAGE_MODEL, input_dim=840, hidden_dim=600, output_dim=15):
+    def __init__(self,PLM=hitachi_utils.LANGUAGE_MODEL, input_dim=840, hidden_dim=600, output_dim=15):
         super(SLC, self).__init__()
         self.FFN = nn.Sequential(
             nn.Linear(input_dim, hidden_dim), # hidden layer
@@ -39,7 +39,7 @@ class SLC(nn.Module):
         )
         self.BiLSTM = nn.LSTM(input_dim, hidden_dim, bidirectional=True,batch_first=True)
         crf = CRF(output_dim)
-    def forward(self, input_ids, lengths, pos_features, labels_BIO=None):
+    def forward(self, input_ids, lengths, pos_features, token_type_ids=None):
         packed_input = pack_padded_sequence(input_ids, lengths.cpu(), batch_first=True, enforce_sorted=False)
         lstm_output, _ = self.BiLSTM(packed_input)
         lstm_output, _ = pad_packed_sequence(lstm_output, batch_first=True)
@@ -65,7 +65,7 @@ class SLC(nn.Module):
 
 
 class HITACHI_SI(nn.Module):
-    def __init__(self,PLM=identification.LANGUAGE_MODEL, input_dim=840, hidden_dim=600, output_dim=15):
+    def __init__(self,PLM=hitachi_utils.LANGUAGE_MODEL, input_dim=840, hidden_dim=600, output_dim=15):
         super(HITACHI_SI, self).__init__()
         if PLM == "BERT":
             self.PLM = transformers.BertModel.from_pretrained('bert-base-uncased',output_hidden_states=True)
@@ -86,22 +86,26 @@ class HITACHI_SI(nn.Module):
 
         self.CRF = CRF(3,batch_first=True)
 
-    def forward(self,input_ids=None,lengths=None,labels_BIO = None, labels_TC = None):
+    def forward(self,input_ids=None,lengths=None,token_type_ids = None, labels_TC = None, attention_mask = None):
         # before this is even ran, data should be preprocessed via get_token_representation
         # input of shape (batch_size, max_seq_len, input_dim)
         # labels is list of tensors of BIO tags
-        packed_input = pack_padded_sequence(input_ids, lengths.cpu(), batch_first=True, enforce_sorted=False)
+        if lengths is None:
+            lengths = (input_ids != 0).sum(dim=1).long()
+        if attention_mask is None:
+            attention_mask = (input_ids != 0).long()
+        packed_input = pack_padded_sequence(input_ids.float(), lengths.cpu(), batch_first=True, enforce_sorted=False)
         lstm_output, _ = self.BiLSTM(packed_input)
         lstm_output, _ = torch.nn.utils.rnn.pad_packed_sequence(lstm_output, batch_first=True)
         
         BIO_output = self.FFN_BIO(lstm_output)
-        if labels_BIO is not None:  # Training mode (return loss)
-            if isinstance(labels_BIO, list):  # Convert list to tensor
-                labels_BIO = torch.tensor(labels_BIO, dtype=torch.long, device=BIO_output.device)
+        if token_type_ids is not None:  # Training mode (return loss)
+            if isinstance(token_type_ids, list):  # Convert list to tensor
+                token_type_ids = torch.tensor(token_type_ids, dtype=torch.long, device=BIO_output.device)
 
-            mask = torch.tensor((labels_BIO != -1), dtype=torch.bool, device=BIO_output.device)
+            mask = torch.tensor((token_type_ids != -1), dtype=torch.bool, device=BIO_output.device)
             assert (mask[:, 0] == 1).all(), "Error: Some sequences have mask[:, 0] == 0!"  # Create mask for ignoring padded tokens
-            crf_loss = -self.CRF(BIO_output, labels_BIO, mask=mask, reduction='mean' )  # Compute CRF loss
+            crf_loss = -self.CRF(BIO_output, token_type_ids, mask=mask, reduction='mean' )  # Compute CRF loss
             return crf_loss
         
         if labels_TC is not None and classification.TLC == True:  # Training mode (return loss)
@@ -187,24 +191,23 @@ def hitachi_si_train():
     techniques = get_si_techniques(spans,tc_spans_techniques)
 
     
+    NUM_ARTICLES = hitachi_utils.NUM_ARTICLES
+    articles = articles[0:NUM_ARTICLES]
+    techniques = techniques[0:NUM_ARTICLES]
+    spans = spans[0:NUM_ARTICLES]
+    indices = np.arange(NUM_ARTICLES)
+    eval_indices = indices[int(0.9 * NUM_ARTICLES):]
+    train_indices = indices[:int(0.9 * NUM_ARTICLES)]
 
-    articles = articles[0:identification.NUM_ARTICLES]
-    techniques = techniques[0:identification.NUM_ARTICLES]
-    spans = spans[0:identification.NUM_ARTICLES]
-    indices = np.arange(identification.NUM_ARTICLES)
-    eval_indices = indices[int(0.9 * identification.NUM_ARTICLES):]
-    train_indices = indices[:int(0.9 * identification.NUM_ARTICLES)]
-
-    train_dataloader, train_sentences, train_bert_examples = applica_utils.get_data(articles, spans, train_indices)
-    eval_dataloader, eval_sentences, eval_bert_examples = applica_utils.get_data(articles, spans, eval_indices)
+    train_dataloader, train_sentences, train_bert_examples = identification.get_data(articles, spans, train_indices)
+    eval_dataloader, eval_sentences, eval_bert_examples = identification.get_data(articles, spans, eval_indices)
 
     dataloader = identification.get_data_hitachi(articles, spans, techniques, train_indices, PLM = hitachi_si.PLM, s = hitachi_si.s, c = hitachi_si.c)
-    eval_dataloader = applica_utils.get_data(articles, spans, eval_indices)
-    optimizer = optim.AdamW(hitachi_si.parameters(), lr=identification.LEARNING_RATE, weight_decay=1e-2)
+    optimizer = optim.AdamW(hitachi_si.parameters(), lr=hitachi_utils.LEARNING_RATE, weight_decay=1e-2)
     total_loss = 0
     
     hitachi_si.train()
-    for epoch_i in range(0, identification.EPOCHS):
+    for epoch_i in range(0, hitachi_utils.EPOCHS):
         total_loss,steps = (0,0)
         length = len(dataloader)
         for step, batch in enumerate(dataloader):
@@ -213,7 +216,7 @@ def hitachi_si_train():
             b_input_ids = b_input_ids.to(device)
             b_labels = b_labels.to(device)        
             loss = hitachi_si(b_input_ids, 
-                        labels_BIO = b_labels,
+                        token_type_ids = b_labels,
                         lengths=b_lengths)
             total_loss += loss.detach().item()
             # not a fan, no idea why retain_graph needs to be true but we ball
@@ -226,7 +229,7 @@ def hitachi_si_train():
             steps+=1
         print(f"Epoch{epoch_i}: Avg Loss{total_loss/steps}")
 
-    applica_utils.get_score(hitachi_si,
+    identification.get_score(hitachi_si,
         eval_dataloader,
         eval_sentences,
         eval_bert_examples,
@@ -235,7 +238,7 @@ def hitachi_si_train():
         indices=eval_indices)
     if identification.SAVE_MODEL:
       model_name = 'hitachi_si_' + str(datetime.datetime.now()) + '.pt'
-      torch.save(model, os.path.join(identification.model_dir, model_name))
+      torch.save(hitachi_utils.model, os.path.join(identification.model_dir, model_name))
       print("Model saved:", model_name)
 
 
@@ -245,9 +248,5 @@ def hitachi_si_train():
 
 
 if __name__ == "__main__":
-    model = transformers.BertModel.from_pretrained('bert-base-uncased',output_hidden_states=True)
-    
-    #sentence = ["The quick brown fox jumps over the lazy dog."]
-    #sentence = ["##Tokenization is fascinating!"]
-
+    #model = transformers.BertModel.from_pretrained('bert-base-uncased',output_hidden_states=True)
     hitachi_si_train()

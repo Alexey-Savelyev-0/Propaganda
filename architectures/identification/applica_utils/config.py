@@ -3,7 +3,7 @@ import sys
 BATCH_SIZE = 2
 NUM_ARTICLES = 5
 TAGGING_SCHEME = "BIO"
-LANGUAGE_MODEL = "RoBERTa-CRF"
+LANGUAGE_MODEL = "BERT"
 SELF_TRAINING = False
 SELF_TRAINING_ARTICLE_VOLUME = 0
 
@@ -13,7 +13,7 @@ SELF_TRAINING_ARTICLE_VOLUME = 0
 
 if LANGUAGE_MODEL == "RoBERTa" or LANGUAGE_MODEL == "RoBERTa-CRF":
   from transformers import RobertaTokenizer
-  tokenizer = RobertaTokenizer.from_pretrained('roberta-base', lower_case=True)
+  tokenizer = RobertaTokenizer.from_pretrained('roberta-large', lower_case=True)
 else:
   from transformers import BertTokenizer
   tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', lower_case=True)

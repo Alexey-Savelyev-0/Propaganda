@@ -4,7 +4,7 @@ from transformers import BertTokenizerFast, RobertaTokenizer
 import transformers
 
 BATCH_SIZE = 6
-NUM_ARTICLES = 5
+NUM_ARTICLES = 2
 TAGGING_SCHEME = "BIO"
 LANGUAGE_MODEL = "BERT"
 LEARNING_RATE = 3.5e-4

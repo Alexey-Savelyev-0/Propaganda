@@ -1,5 +1,5 @@
 import torch
-from . import config
+from .hitachi_utils import config
 import spacy
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
@@ -67,6 +67,7 @@ class BertExample:
     self.sentence_id = -1
     self.orig_to_tok_index = []
     self.tok_to_orig_index = []
+    self.techniques = None
     self.labels = None
     self.tokens_ids = []
     self.input_mask = []
@@ -284,15 +285,19 @@ def get_data_hitachi(articles: list[str], spans: list[list[int]],techniques: lis
         article = articles[index]
         span = spans[index]
         article_techniques = unformatted_techniques[index]
-        sentence_tensors, _, cur_propaganda_labels,cur_propaganda_techniques, cur_masks= get_sentence_inputs(article,model = PLM,s=s,c=c, span=span, article_index=index,input_techniques =article_techniques)
+        #sentence_tensors, _, cur_propaganda_labels,cur_propaganda_techniques, cur_masks= get_sentence_inputs(article,model = PLM,s=s,c=c, span=span, article_index=index,input_techniques =article_techniques)
+        article_sentences = get_sentence_inputs(article, PLM, s=s, c=c,tokenizer=config.tokenizer, span=span, article_index=index,input_techniques=article_techniques)
+        """
         sentences+=sentence_tensors
         propaganda_labels+=cur_propaganda_labels
         propaganda_techniques+=cur_propaganda_techniques
         masks+=cur_masks
+        """
+        sentences+=article_sentences
 
 
     ## get dataloader
-    dataloader = get_padded_dataloader(sentences,propaganda_labels,propaganda_techniques)
+    dataloader = get_padded_dataloader(sentences)
     return dataloader
 
 def convert_sentence_to_input_feature_hitachi(sentence, sentence_labels, tokenizer, add_cls_sep=True, max_seq_len=256,model=None):
@@ -432,6 +437,16 @@ def get_sentence_inputs(article, model, s, c,tokenizer=config.tokenizer,  span=N
   #for i in range(len(current_propaganda_labels)):
     #current_propaganda_labels[i] += [-100] * (config.sentence_len - len(current_propaganda_labels[i]))
   
+  examples_sentences = []
+  for i in range(len(sentence_tensors)):
+     example = BertExample()
+     example.sentence_id = i
+     example.tokens_ids = sentence_tensors[i]
+     example.input_mask = input_masks[i]
+     example.labels = current_propaganda_labels[i]
+     example.techniques = current_technique_labels[i]
+     examples_sentences.append(example)
+  return examples_sentences
   return sentence_tensors, sentences, current_propaganda_labels,current_technique_labels,input_masks, 
   
 
@@ -445,8 +460,6 @@ def get_list_from_dict(num_sentences, word_offsets):
 
   return li
 
-def test(sentence, model,c, s,tokenizer,avg_subtokens = True):
-  return get_PLM_layer_attention(sentence, model,c, s,tokenizer,avg_subtokens)
 
 def get_PLM_layer_attention(sentence, model,c, s,tokenizer,avg_subtokens = True):
     """ To obtain input representations, we provide a layer-wise attention to fuse the outputs of PLM layers.
@@ -609,18 +622,17 @@ def get_token_representation(sentence:list[str],model,s,c,tokenizer = config.tok
     output = output.squeeze(0)
     return output
 
-def get_dataloader(representations, labels, masks):
-    assert len(representations) == len(labels)
+def get_dataloader(examples):
     
         
-    
-    padded_representations = [
-    F.pad(sentence, (0, 0, 0, 256 - sentence.shape[0]))
-    for sentence in representations
-    ]
-    representations = torch.stack(padded_representations,dim=0)
-    labels = torch.tensor(labels)
-    tensor_data = TensorDataset(representations, labels)
+    inputs = torch.tensor([d.tokens_ids for d in examples])
+    labels = torch.tensor([d.labels for d in examples])
+    masks = torch.tensor([d.input_mask for d in examples])
+    sentence_ids = torch.tensor([d.sentence_id for d in examples])
+    #padded_representations = [F.pad(sentence, (0, 0, 0, 256 - sentence.shape[0]))for sentence in inputs]
+    #representations = torch.stack(examples,dim=0)
+    #labels = torch.tensor(labels)
+    tensor_data = TensorDataset(inputs, labels, masks, sentence_ids)
     dataloader = DataLoader(tensor_data, batch_size=config.BATCH_SIZE)
     return dataloader
 
@@ -653,8 +665,11 @@ def collate_fn(batch):
 
     return padded_representations, lengths, padded_labels, padded_techniques
 
-def get_padded_dataloader(representations, labels, techniques=None, batch_size=config.BATCH_SIZE):
+def get_padded_dataloader(sentences,batch_size=config.BATCH_SIZE):
     """Returns a DataLoader that provides padded sequences."""
+    representations = [sentence.tokens_ids for sentence in sentences]
+    labels = [sentence.labels for sentence in sentences]
+    techniques = [sentence.techniques for sentence in sentences]
     if techniques == None:
       dataset = list(zip(representations, labels))
     else:
