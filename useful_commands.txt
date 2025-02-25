@@ -1,0 +1,3 @@
+sbatch b.sbatch
+ssh kudu
+conda activate myenv2
