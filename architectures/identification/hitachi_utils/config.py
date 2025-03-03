@@ -1,14 +1,14 @@
 import os
 import torch
-from transformers import BertTokenizerFast, RobertaTokenizer
+from transformers import BertTokenizerFast, RobertaTokenizerFast
 import transformers
 
 BATCH_SIZE = 6
-NUM_ARTICLES = 2
+NUM_ARTICLES = 20
 TAGGING_SCHEME = "BIO"
-LANGUAGE_MODEL = "BERT"
+LANGUAGE_MODEL = "RoBERTa"
 LEARNING_RATE = 3.5e-4
-EPOCHS = 1
+EPOCHS = 4
 TLC = False
 SLC = False
 SAVE_MODEL = True
@@ -18,8 +18,6 @@ SAVE_MODEL = True
 
 """ To do:
 
-Test Auxiallry task 1
-Develop Auxiallary Task 2.
 Make BERT trainable (for last 2 epochs)
 Custom Learning rates between RoBERTa
 
@@ -55,10 +53,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 if LANGUAGE_MODEL == "RoBERTa":
-  from transformers import RobertaTokenizer
-  tokenizer = RobertaTokenizer.from_pretrained('roberta-base', lower_case=True)
-if LANGUAGE_MODEL == "BERT":
-  from transformers import BertTokenizer
+  tokenizer = RobertaTokenizerFast.from_pretrained('roberta-base')
+elif LANGUAGE_MODEL == "BERT":
   tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased', lower_case=True)
   model = transformers.BertModel.from_pretrained('bert-base-uncased',output_hidden_states=True)
   sentence_len = 256

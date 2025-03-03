@@ -149,7 +149,7 @@ def convert_sentence_to_input_feature(sentence, sentence_id, tokenizer, add_cls_
     labels = labels + [0]
   # labels = pad_sequences(labels, maxlen=max_seq_len, truncating="post", padding="post", dtype="int")
   while len(labels) < max_seq_len:
-    labels.append(0)
+    labels.append(-1)
   sentence_text = sentence.sentence
   while len(sentence_text) < max_seq_len:
     sentence_text += " "
@@ -163,6 +163,94 @@ def convert_sentence_to_input_feature(sentence, sentence_id, tokenizer, add_cls_
   return bert_example 
 
 
+def split_long_sentence(doc, max_len=256):
+    """
+    Yield sentence spans from the doc. If a sentence has more than max_len tokens,
+    split it into consecutive sub-spans of at most max_len tokens.
+    
+    Parameters:
+        doc (spacy.tokens.Doc): The processed Doc.
+        max_len (int): Maximum number of tokens per sentence chunk.
+    
+    Yields:
+        spacy.tokens.Span: A sentence or sub-sentence span with global character offsets.
+    """
+    for sent in doc.sents:
+        sentence_tokens= config.tokenizer.tokenize(sent.text)
+        if len(sentence_tokens) <= max_len:
+            yield sent
+        else:
+            # If the sentence is too long, split it into chunks
+            for i in range(0, len(sent), max_len):
+                # Calculate absolute start and end positions
+                start = sent.start + i
+                end = min(sent.start + i + max_len, sent.end)
+                yield doc[start:end]
+
+
+def split_long_sentence(doc, max_len=256):
+    """
+    Yield sentence spans from the doc. If a sentence's tokenized length exceeds max_len,
+    split it into consecutive sub-spans where each sub-span's tokenized length is <= max_len.
+    
+    Parameters:
+        doc (spacy.tokens.Doc): The processed Doc.
+        max_len (int): Maximum number of tokens per sentence chunk after tokenization.
+    
+    Yields:
+        spacy.tokens.Span: A sentence or sub-sentence span with global character offsets.
+    """
+    for sent in doc.sents:
+        sent_text = sent.text
+        tokenized_sent = config.tokenizer.tokenize(sent_text)
+        if len(tokenized_sent) <= max_len:
+            yield sent
+        else:
+            sent_tokens = list(sent)
+            start_idx = 0
+            total_tokens = len(sent_tokens)
+            
+            while start_idx < total_tokens:
+                low = start_idx
+                high = total_tokens
+                best_end = start_idx
+                
+                # Binary search to find the maximum end index where token count <= max_len
+                while low < high:
+                    mid = (low + high) // 2
+                    if mid == start_idx:
+                        chunk_text = ""
+                    else:
+                        chunk_start = sent_tokens[start_idx].idx
+                        chunk_end = sent_tokens[mid - 1].idx + len(sent_tokens[mid - 1].text)
+                        chunk_text = doc.text[chunk_start:chunk_end]
+                    tokenized_chunk = config.tokenizer.tokenize(chunk_text)
+                    
+                    if len(tokenized_chunk) <= max_len:
+                        best_end = mid
+                        low = mid + 1
+                    else:
+                        high = mid
+                
+                # Handle case where no valid split found (force move by 1 token)
+                if best_end == start_idx:
+                    best_end = start_idx + 1
+                    if best_end > total_tokens:
+                        best_end = total_tokens
+                
+                # Create span from character offsets
+                chunk_start_char = sent_tokens[start_idx].idx
+                chunk_end_char = sent_tokens[best_end - 1].idx + len(sent_tokens[best_end - 1]) if best_end > start_idx else sent_tokens[start_idx].end_char
+                chunk_span = doc.char_span(chunk_start_char, chunk_end_char)
+                
+                if chunk_span is None:
+                    # Fallback to token indices if char_span fails
+                    chunk_span = doc[sent_tokens[start_idx].i : sent_tokens[best_end - 1].i + 1]
+                
+                yield chunk_span
+                start_idx = best_end
+
+
 def get_sentence_tokens_labels(article, span=None, article_index=None,article_techniques = None):
   doc_tokens = [] # builds up to a word
   char_to_word_offset = [None] * len(article)
@@ -173,20 +261,32 @@ def get_sentence_tokens_labels(article, span=None, article_index=None,article_te
   max_seq_length = 100
   nlp = spacy.load("en_core_web_sm")
   doc = nlp(article)
-  for x,sent in enumerate(doc.sents):
-    sentence_tokens = [token.text for token in sent]
+  
+  for x,sent in enumerate(split_long_sentence(doc, max_len=75)):
+    sentence_tokens= config.tokenizer.tokenize(sent.text)
+    encoded = config.tokenizer(
+            sent.text,
+            return_offsets_mapping=True,
+            add_special_tokens=False  # Exclude <s>, </s> for alignment
+        )
+    offset_mapping = encoded["offset_mapping"]
     all_sentence_tokens.append(sentence_tokens)
     prev_token_end = 0
-    for i,token in enumerate(sent):
-      start = token.idx
-      end = start + len(token.text)
-      word_to_start_char_offset[(x, i)] = start
-      word_to_end_char_offset[(x, i)] = end
-      for char_pos in range(start, end):
-        if char_pos < len(article):
-          char_to_word_offset[char_pos] = (x,i)
+    sent_start_char = sent.start_char
+    for i, (token_start, token_end) in enumerate(offset_mapping):
+            start = sent_start_char + token_start
+            end = sent_start_char + token_end
 
-      if i > 0:
+            # Map token to global character offsets
+            word_to_start_char_offset[(x, i)] = start
+            word_to_end_char_offset[(x, i)] = end
+
+            # Map characters to token positions
+            for char_pos in range(start, end):
+                if char_pos < len(article):
+                    char_to_word_offset[char_pos] = (x, i)
+
+    if i > 0:
         gap_start = prev_token_end
         gap_end = start
         for char_pos in range(gap_start, gap_end):
@@ -194,7 +294,7 @@ def get_sentence_tokens_labels(article, span=None, article_index=None,article_te
             char_to_word_offset[char_pos] = (x,i - 1)
             
             prev_token_end = end
-      prev_token_end = end
+    prev_token_end = end
   if prev_token_end < len(article):
         for char_pos in range(prev_token_end, len(article)):
             if x is not None and i is not None:

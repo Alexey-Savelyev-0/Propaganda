@@ -9,6 +9,7 @@ from transformers import BertTokenizer, BertForTokenClassification
 from transformers import get_linear_schedule_with_warmup, AdamW
 #from torch import AdamW as AdamWnew
 import identification
+import classification.hitachi_utils as classification
 import identification.applica_utils as applica_utils
 
 
@@ -23,8 +24,8 @@ def train(model, train_dataloader, eval_dataloader, epochs=5, save_model=False):
     for step, batch in enumerate(train_dataloader):
       # add batch to gpu
       batch = tuple(t.to(device) for t in batch)
-      b_input_ids, b_labels, b_input_mask, b_ids = batch
-
+      b_input_ids, b_labels, b_input_mask, b_ids, _ = batch
+      
       output = model(b_input_ids, token_type_ids=None,attention_mask=b_input_mask, labels=b_labels)
       output = model(b_input_ids, token_type_ids=None, attention_mask=b_input_mask, labels=b_labels)
       loss= output.get("loss")
@@ -83,12 +84,19 @@ def train(model, train_dataloader, eval_dataloader, epochs=5, save_model=False):
 
 articles, article_ids = identification.read_articles('train-articles')
 spans = identification.read_spans()
+tc_spans, techniques = classification.read_spans()
+tc_spans_techniques = {}
+for i in range(len(tc_spans)):
+    for j in range(len(tc_spans[i])):
+      tc_spans_techniques[(i,tc_spans[i][j])] = techniques[i][j]
+        
+techniques = identification.get_si_techniques(spans,tc_spans_techniques)
 NUM_ARTICLES = len(articles)
 
 NUM_ARTICLES = min(NUM_ARTICLES, 5)
 articles = articles[0:NUM_ARTICLES]
 spans = spans[0:NUM_ARTICLES]
-
+techniques = techniques[0:NUM_ARTICLES]
 np.random.seed(245)
 indices = np.arange(NUM_ARTICLES)
 print(indices)
@@ -103,8 +111,8 @@ TAGGING_SCHEME = applica_utils.TAGGING_SCHEME
 BATCH_SIZE = applica_utils.BATCH_SIZE
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-train_dataloader, train_sentences, train_bert_examples = identification.get_data(articles, spans, train_indices)
-eval_dataloader, eval_sentences, eval_bert_examples = identification.get_data(articles, spans, eval_indices)
+train_dataloader, train_sentences, train_bert_examples = identification.get_data(articles, spans, train_indices,techniques)
+eval_dataloader, eval_sentences, eval_bert_examples = identification.get_data(articles, spans, eval_indices,techniques)
 
 
 num_labels = 2 + int(TAGGING_SCHEME =="BIO") + 2 * int(TAGGING_SCHEME == "BIOE")
