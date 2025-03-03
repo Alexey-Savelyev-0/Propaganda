@@ -114,25 +114,16 @@ def convert_sentence_to_input_feature(sentence, sentence_id, tokenizer, add_cls_
   for (i, token) in enumerate(sentence_tokens):
     orig_to_tok_index.append(len(all_doc_tokens))
     sub_tokens = tokenizer.tokenize(token)
-    for sub_token in sub_tokens:
-      tok_to_orig_index.append(i)
-      all_doc_tokens.append(sub_token)
+    tok_to_orig_index.append(i)
+    all_doc_tokens.append(token)
   bert_example.tok_to_orig_index = tok_to_orig_index
   bert_example.orig_to_tok_index = orig_to_tok_index
-  bert_example.tokens = sentence.tokens
   
   bert_tokens = all_doc_tokens
-  if add_cls_sep:
-    bert_tokens = ["[CLS]"] + bert_tokens
-    bert_tokens = bert_tokens + ["[SEP]"]
   
   tokens_ids = tokenizer.convert_tokens_to_ids(bert_tokens)
   input_mask = [1] * len(tokens_ids)
-  while len(tokens_ids) < max_seq_len:
-    tokens_ids.append(0)
-    input_mask.append(0)
-  bert_example.tokens_ids = tokens_ids
-  bert_example.input_mask = input_mask
+  
   # bert_example.input_mask = [float(i>0) for i in token_ids]
 
   if sentence_labels is None:
@@ -142,17 +133,20 @@ def convert_sentence_to_input_feature(sentence, sentence_id, tokenizer, add_cls_
   labels = [0] * len(all_doc_tokens)
   # the label of each word is replicated for each subtoken of the word
   # make sure to at some point allow only the inclusion of the first token of the word
+  
   for index, token in enumerate(all_doc_tokens):
     labels[index] = sentence_labels[tok_to_orig_index[index]]
-  if add_cls_sep:
-    labels = [0] + labels
-    labels = labels + [0]
-  # labels = pad_sequences(labels, maxlen=max_seq_len, truncating="post", padding="post", dtype="int")
+  
+  assert len(labels) == len(tokens_ids)
   while len(labels) < max_seq_len:
-    labels.append(-1)
+    labels.append(-100)
   sentence_text = sentence.sentence
-  while len(sentence_text) < max_seq_len:
-    sentence_text += " "
+  
+  while len(tokens_ids) < max_seq_len:
+    tokens_ids.append(1)
+    input_mask.append(0)
+  bert_example.tokens_ids = tokens_ids
+  bert_example.input_mask = input_mask
   
   bert_example.sentence = sentence_text
   while len(sentence_techniques) < max_seq_len:
@@ -203,10 +197,11 @@ def split_long_sentence(doc, max_len=256):
     for sent in doc.sents:
         sent_text = sent.text
         tokenized_sent = config.tokenizer.tokenize(sent_text)
+        tokenized_sent = config.tokenizer.convert_tokens_to_ids(tokenized_sent)
         if len(tokenized_sent) <= max_len:
             yield sent
         else:
-            sent_tokens = list(sent)
+            sent_tokens = list(sent_text)
             start_idx = 0
             total_tokens = len(sent_tokens)
             
@@ -225,8 +220,8 @@ def split_long_sentence(doc, max_len=256):
                         chunk_end = sent_tokens[mid - 1].idx + len(sent_tokens[mid - 1].text)
                         chunk_text = doc.text[chunk_start:chunk_end]
                     tokenized_chunk = config.tokenizer.tokenize(chunk_text)
-                    
-                    if len(tokenized_chunk) <= max_len:
+                    length = len(config.tokenizer.convert_tokens_to_ids(tokenized_chunk))
+                    if length <= max_len:
                         best_end = mid
                         low = mid + 1
                     else:
@@ -250,6 +245,11 @@ def split_long_sentence(doc, max_len=256):
                 yield chunk_span
                 start_idx = best_end
 
+def split_into_chunks(text, chunk_size=240):
+    chunks = []
+    for i in range(0, len(text), chunk_size):
+        chunks.append(text[i:i+chunk_size])
+    return chunks
 
 def get_sentence_tokens_labels(article, span=None, article_index=None,article_techniques = None):
   doc_tokens = [] # builds up to a word
@@ -257,17 +257,15 @@ def get_sentence_tokens_labels(article, span=None, article_index=None,article_te
   all_sentence_tokens = []
   word_to_start_char_offset = {}
   word_to_end_char_offset = {}
-  sentences_text = article.split("\n")
-  max_seq_length = 100
   nlp = spacy.load("en_core_web_sm")
   doc = nlp(article)
   
-  for x,sent in enumerate(split_long_sentence(doc, max_len=75)):
-    sentence_tokens= config.tokenizer.tokenize(sent.text)
+  for x,sent in enumerate(split_long_sentence(doc, max_len=240)):
+    sentence_tokens= config.tokenizer.tokenize(sent.text,add_special_tokens=True)
     encoded = config.tokenizer(
             sent.text,
             return_offsets_mapping=True,
-            add_special_tokens=False  # Exclude <s>, </s> for alignment
+            add_special_tokens=False # Exclude <s>, </s> for alignment
         )
     offset_mapping = encoded["offset_mapping"]
     all_sentence_tokens.append(sentence_tokens)
@@ -284,22 +282,16 @@ def get_sentence_tokens_labels(article, span=None, article_index=None,article_te
             # Map characters to token positions
             for char_pos in range(start, end):
                 if char_pos < len(article):
-                    char_to_word_offset[char_pos] = (x, i)
+                    char_to_word_offset[char_pos] = (x, i+1)
 
-    if i > 0:
-        gap_start = prev_token_end
-        gap_end = start
-        for char_pos in range(gap_start, gap_end):
-          if char_pos < len(article):
-            char_to_word_offset[char_pos] = (x,i - 1)
-            
-            prev_token_end = end
-    prev_token_end = end
-  if prev_token_end < len(article):
-        for char_pos in range(prev_token_end, len(article)):
-            if x is not None and i is not None:
-                char_to_word_offset[char_pos] = (x, i)
-  char_to_word_offset = [(-1, -1) if x is None else x for x in char_to_word_offset]
+  last_valid = None
+  for i in range(len(char_to_word_offset)):
+      current = char_to_word_offset[i]
+      if current != None:
+          last_valid = current
+      else:
+          if last_valid is not None:
+              char_to_word_offset[i] = last_valid
   
   if span is None:
     return all_sentence_tokens, (word_to_start_char_offset, word_to_end_char_offset)
@@ -360,48 +352,19 @@ def get_sentence_tokens_labels(article, span=None, article_index=None,article_te
     sentence = example_sentence()
     sentence.tokens = all_sentence_tokens[i]
     sentence.labels = current_propaganda_labels[i]
-    sentence.sentence = sentences_text[i]
     sentence.article_index =  article_index
     sentence.index = i
     sentence.word_to_start_char_offset = start_offset_list[i]
     sentence.word_to_end_char_offset = end_offset_list[i]
     num_words = len(sentence.tokens)
     assert len(sentence.labels) == num_words
-    assert len(sentence.word_to_start_char_offset) == num_words
-    assert len(sentence.word_to_end_char_offset) == num_words
+    assert len(sentence.word_to_start_char_offset) == num_words-2
+    assert len(sentence.word_to_end_char_offset) == num_words-2
     output_sentences.append(sentence)
 
   return all_sentence_tokens, current_propaganda_labels, (word_to_start_char_offset, word_to_end_char_offset), output_sentences
 
 
-
-def get_data_hitachi(articles: list[str], spans: list[list[int]],techniques: list[list[str]], indices: list[int],PLM, s: torch.Tensor, c: torch.Tensor):
-    """
-    ??
-    """
-    sentences = []
-    propaganda_labels = []
-    masks = []
-    unformatted_techniques = [[config.distinct_techniques[technique] for technique in technique_list] for technique_list in techniques]
-    propaganda_techniques = []
-    for index in indices:
-        article = articles[index]
-        span = spans[index]
-        article_techniques = unformatted_techniques[index]
-        #sentence_tensors, _, cur_propaganda_labels,cur_propaganda_techniques, cur_masks= get_sentence_inputs(article,model = PLM,s=s,c=c, span=span, article_index=index,input_techniques =article_techniques)
-        article_sentences = get_sentence_inputs(article, PLM, s=s, c=c,tokenizer=config.tokenizer, span=span, article_index=index,input_techniques=article_techniques)
-        """
-        sentences+=sentence_tensors
-        propaganda_labels+=cur_propaganda_labels
-        propaganda_techniques+=cur_propaganda_techniques
-        masks+=cur_masks
-        """
-        sentences+=article_sentences
-
-
-    ## get dataloader
-    dataloader = get_padded_dataloader(sentences)
-    return dataloader
 
 
 
@@ -410,116 +373,6 @@ def is_whitespace(c):
     return True
   return False
 
-def get_sentence_inputs(article, model, s, c,tokenizer=config.tokenizer,  span=None, article_index=None,input_techniques = None):
-  doc_tokens = [] # builds up to a word
-  char_to_word_offset = []
-  all_sentence_tokens = [] # actually all sentence tokens for particular article. #TODO rename
-  word_to_start_char_offset = {}
-  word_to_end_char_offset = {}
-  new_word_to_start_char_offset = {}
-  new_word_to_end_char_offset = {}
-  nlp = spacy.load("en_core_web_sm")
-  
-  # TEST THIS DOESNT BREAK FUNCTION
-  sentences = article.split("\n")
-  article_char_offset = 0  
-  char_to_word_offset = [None] * len(article)
-  sentence_tensors = []
-  input_masks = []
-  blank_sentences = 0
-  for x, sentence in enumerate(sentences):
-    if len(sentences[x]) == 0:
-      blank_sentences += 1
-      continue
-    sentence_tensor = get_token_representation(sentence=sentences[x],model=model,tokenizer=tokenizer, s=s, c=c)
-    # pad to max_seq_len
-    input_mask = [1] * len(sentence_tensor) + [0] * (config.sentence_len - len(sentence_tensor))
-    input_masks.append(input_mask)
-    sentence_nlp = nlp(sentences[x])
-    sentence_tokens = [token.text for token in sentence_nlp]
-    all_sentence_tokens.append(sentence_tokens)
-    for word_index,token in  enumerate(sentence_nlp):
-        word_start = token.idx
-        word_end = word_start + len(token.text)
-
-        # Store word start & end offsets
-        new_word_to_start_char_offset[(x, token.i)] = word_start
-        new_word_to_end_char_offset[(x, token.i)] = word_end
-        if word_start is not None and word_end is not None:
-            for char_pos in range(word_start+article_char_offset, word_end+article_char_offset):
-                char_to_word_offset[char_pos] = (x-blank_sentences, word_index)
-
-    for char_pos in range(article_char_offset, article_char_offset + len(sentence)+1):
-        if char_to_word_offset[char_pos] is None:
-            char_to_word_offset[char_pos] = char_to_word_offset[char_pos - 1]
-    sentence_tensors.append(sentence_tensor)
-    article_char_offset += len(sentences[x]) + 1
-
-
-  if span is None:
-    return sentence_tensors
-
-  current_propaganda_labels = []
-  current_technique_labels= []
-  for doc_tokens in all_sentence_tokens:
-    current_propaganda_labels.append([0] * len(doc_tokens))
-    current_technique_labels.append([0] * len(doc_tokens))
-
-  start_positions = []
-  end_positions = []
-  techniques = []
-  for i,sp in enumerate(span):
-    
-    if (char_to_word_offset[sp[0]][0] != char_to_word_offset[sp[1]-1][0]):
-      # if the sentence of the character at the beggining of the span isn't the same as sentence of the character at the end of the span.
-      l1 = char_to_word_offset[sp[0]][0] # sentence 1
-      l2 = char_to_word_offset[sp[1] - 1][0] # sentence 2
-      start_positions.append(char_to_word_offset[sp[0]])
-      techniques.append(input_techniques[i]) 
-      # add (sentence, index of curr word) of starting word for span.
-      end_positions.append((l1, len(all_sentence_tokens[l1])-1))
-      # add (sentence 1, lenth of sentence 1) i.e say that the span goes to the end of the sentence.
-      l1 += 1
-      while(l1 < l2):
-        start_positions.append((l1, 0)) # add another span starting at next sentence from sentence 1
-        techniques.append(input_techniques[i])
-        end_positions.append((l1, len(all_sentence_tokens[l1])-1))
-        l1 += 1
-        # keep filling sentences with spans until sentence 2 reached.
-      start_positions.append((l2, 0)) 
-      techniques.append(input_techniques[i])
-      end_positions.append(char_to_word_offset[sp[1]-1])  
-      continue
-    # add whichever character is at the outlined char
-    start_positions.append(char_to_word_offset[sp[0]])
-    end_positions.append(char_to_word_offset[sp[1]-1])
-    techniques.append(input_techniques[i])
-
-  for i, _ in enumerate(start_positions):
-    assert start_positions[i][0] == end_positions[i][0]
-    if config.TAGGING_SCHEME == "BIO":
-      current_propaganda_labels[start_positions[i][0]][start_positions[i][1]] = 2 # Begin label
-      if techniques != None:
-        current_technique_labels[start_positions[i][0]][start_positions[i][1]] = techniques[i]
-      if start_positions[i][1] < end_positions[i][1]:
-        current_propaganda_labels[start_positions[i][0]][start_positions[i][1] + 1 : end_positions[i][1] + 1] = [1] * (end_positions[i][1] - start_positions[i][1])
-        current_technique_labels[start_positions[i][0]][start_positions[i][1] + 1 : end_positions[i][1] + 1] = [techniques[i]] * (end_positions[i][1] - start_positions[i][1])
-
-  # prepend 0s to each propaganda label span
-  current_propaganda_labels = [[0] + s + [0] for s in current_propaganda_labels]
-  current_technique_labels = [[0] + s + [0] for s in current_technique_labels]
-  
-  examples_sentences = []
-  for i in range(len(sentence_tensors)):
-     example = BertExample()
-     example.sentence_id = i
-     example.tokens_ids = sentence_tensors[i]
-     example.input_mask = input_masks[i]
-     example.labels = current_propaganda_labels[i]
-     example.techniques = current_technique_labels[i]
-     examples_sentences.append(example)
-  return examples_sentences
-  
 
 def get_list_from_dict(num_sentences, word_offsets):
   li = []

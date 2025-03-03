@@ -220,6 +220,7 @@ class HITACHI_SI(nn.Module):
         device = next(self.PLM.parameters()).device
         inputs = {key: value.to(device) for key,value in inputs.items()}
             
+            
         outputs = self.PLM(**inputs)
         hidden_states = outputs.hidden_states  # Tuple of shape (num_layers, batch_size, seq_len, hidden_dim)
 

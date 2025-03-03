@@ -33,7 +33,7 @@ def get_model_predictions(model, dataloader,model_type = 'bert'):
     # make t a tensor first
 
     batch = tuple(t.to(device) for t in batch)
-    b_input_ids, b_labels, b_input_mask, b_ids = batch  
+    b_input_ids, b_labels,b_input_mask,b_ids, b_techniques = batch  
     with torch.no_grad():
       logits = model(b_input_ids, token_type_ids=None, attention_mask=b_input_mask)
     logits = logits.get("logits")
