@@ -1,9 +1,16 @@
 import numpy as np
 import os
 import csv
-
+import datasets
+from datasets import load_dataset
 from .hitachi_utils import config
 data_dir = config.data_dir
+
+
+def get_owt_articles(dataset="Skylion007/openwebtext",num_articles=100):
+    dataset = load_dataset(dataset,trust_remote_code=True)
+    # return first 100 examples
+    return dataset['train'][:num_articles]
 
 def read_articles(article_dir):
   articles = []

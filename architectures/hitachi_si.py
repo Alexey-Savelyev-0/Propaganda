@@ -101,10 +101,10 @@ class HITACHI_SI(nn.Module):
         padding = (0, 0, 0, padding_count)
         BIO_output = F.pad(BIO_output, padding, "constant", 0)
         padding = (0, padding_count)
-        token_type_ids= F.pad(token_type_ids, padding, "constant", -1)
-        labels_TC = F.pad(labels_TC, padding, "constant", -1)
+        
         if token_type_ids is not None:  # Training mode (return loss)
-            
+            token_type_ids= F.pad(token_type_ids, padding, "constant", -1)
+            labels_TC = F.pad(labels_TC, padding, "constant", -1)
             mask = torch.tensor((token_type_ids != -1), dtype=torch.bool, device=BIO_output.device)
             assert (mask[:, 0] == 1).all(), "Error: Some sequences have mask[:, 0] == 0!"  # Create mask for ignoring padded tokens
             crf_loss = -self.CRF(BIO_output, token_type_ids, mask=mask, reduction='mean' )  # Compute CRF loss
@@ -114,7 +114,7 @@ class HITACHI_SI(nn.Module):
             tc=self.FFN_TC(lstm_output)
         else:  
             predicted_labels = self.CRF.decode(BIO_output)  
-            return predicted_labels
+            return {"logits": predicted_labels}
     def get_sentence_inputs(self,input_ids=None,lengths=None,labels_span = None,labels_TC = None):
         
         sentence_reps = []
@@ -136,13 +136,20 @@ class HITACHI_SI(nn.Module):
         
             for token in special_tokens:
                 string_sentence = string_sentence.replace(token, "")
-            sentence_rep, updated_labels, updated_tc_labels = self.get_token_representation(string_sentence,sentence_ids,labels_span[i],labels_TC[i])
-            sentence_lengths.append(sentence_rep.shape[0])
-            sentence_reps.append(sentence_rep)
-            sentence_span_labels.append(updated_labels)
-            sentence_tc_labels.append(updated_tc_labels)
+            if labels_span is not None:
+                sentence_rep, updated_labels, updated_tc_labels = self.get_token_representation(string_sentence,sentence_ids,labels_span[i],labels_TC[i])
+                sentence_lengths.append(sentence_rep.shape[0])
+                sentence_reps.append(sentence_rep)
+                sentence_span_labels.append(updated_labels)
+                sentence_tc_labels.append(updated_tc_labels)
+            else:
+                sentence_rep,_,_ = self.get_token_representation(string_sentence,sentence_ids)
+                sentence_lengths.append(sentence_rep.shape[0])
+                sentence_reps.append(sentence_rep)
         padded_reps = torch.nn.utils.rnn.pad_sequence(sentence_reps,batch_first=True)
         sentence_lengths = torch.tensor(sentence_lengths)
+        if labels_span is None:
+            return padded_reps, sentence_lengths, None, None
         sentence_span_labels = torch.nn.utils.rnn.pad_sequence(sentence_span_labels,batch_first=True)
         sentence_tc_labels = torch.nn.utils.rnn.pad_sequence(sentence_tc_labels,batch_first=True)
         return padded_reps, sentence_lengths, sentence_span_labels, sentence_tc_labels
@@ -150,7 +157,7 @@ class HITACHI_SI(nn.Module):
        
     
     
-    def get_token_representation(self,sentence,sentence_ids,labels_span,labels_tc):
+    def get_token_representation(self,sentence,sentence_ids,labels_span=None,labels_tc=None):
         ### assume sentence is already tokenized
         """Token representation is obtained by concatting the plm representation, the PoS tag, and NE tag."""
         plm,labels,tc_labels = self.get_PLM_layer_attention(sentence,sentence_ids,labels_span=labels_span,labels_TC=labels_tc)
@@ -212,8 +219,12 @@ class HITACHI_SI(nn.Module):
         # Gather labels
         if labels_span is not None:
             word_labels_span = labels_span[first_token_indices]
+        else:
+            word_labels_span = None
         if labels_TC is not None:
             word_labels_TC = labels_TC[first_token_indices]
+        else:
+            word_labels_TC=None
 
 
 
@@ -255,7 +266,7 @@ class HITACHI_SI(nn.Module):
         # I don't know why this is required
         test = self.c.clone()
         output = torch.mul(fused_embeddings, test)
-        return fused_embeddings,word_labels_span, word_labels_TC  # Apply scaling factor
+        return output,word_labels_span, word_labels_TC
     
     def get_special_tags(self,sentence):
         """ Tokenizes sentences, returns their special tags in dimensions (sentences, sentence-length, vector length)
@@ -362,6 +373,9 @@ def hitachi_si_train():
     indices = np.arange(NUM_ARTICLES)
     eval_indices = indices[int(0.9 * NUM_ARTICLES):]
     train_indices = indices[:int(0.9 * NUM_ARTICLES)]
+    silver_articles = identification.get_owt_articles()['text']
+    silver_indices = np.arange(NUM_ARTICLES)
+    silver_spans = [[] for _ in range(NUM_ARTICLES)]
 
     dataloader, train_sentences, train_bert_examples = identification.get_data(articles, spans, train_indices,techniques=techniques)
     eval_dataloader, eval_sentences, eval_bert_examples = identification.get_data(articles, spans, eval_indices,techniques=techniques)
@@ -370,8 +384,9 @@ def hitachi_si_train():
     optimizer = optim.AdamW(hitachi_si.parameters(), lr=hitachi_utils.LEARNING_RATE, weight_decay=1e-2)
     total_loss = 0
     
-    hitachi_si.train()
+    
     for epoch_i in range(0, hitachi_utils.EPOCHS):
+        hitachi_si.train()
         total_loss,steps = (0,0)
         length = len(dataloader)
         for step, batch in enumerate(dataloader):
@@ -393,19 +408,29 @@ def hitachi_si_train():
             )
             steps+=1
         print(f"Epoch{epoch_i}: Avg Loss{total_loss/steps}")
-    """
-    identification.get_score(hitachi_si,
-        eval_dataloader,
-        eval_sentences,
-        eval_bert_examples,
-        mode="eval",
-        article_ids=article_ids,
-        indices=eval_indices)
-    if identification.SAVE_MODEL:
-      model_name = 'hitachi_si_' + str(datetime.datetime.now()) + '.pt'
-      torch.save(hitachi_utils.model, os.path.join(identification.model_dir, model_name))
+        hitachi_si.eval()
+        identification.get_score(hitachi_si,
+            eval_dataloader,
+            eval_sentences,
+            eval_bert_examples,
+            mode="eval",
+            article_ids=article_ids,
+            indices=eval_indices)
+        
+        if hitachi_utils.SELF_TRAIN:
+            silver_dataloader, silver_sentences, silver_bert_examples = identification.get_data(silver_articles, silver_spans, silver_indices)
+            identification.get_score(hitachi_si,
+                silver_dataloader,
+                silver_sentences,
+                silver_bert_examples,
+                mode="train",
+                article_ids=article_ids,
+                indices=silver_indices)
+    if hitachi_utils.SAVE_MODEL:
+      model_name = 'hitachi_si_' + datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + '.pt'
+      torch.save(hitachi_si, os.path.join(hitachi_utils.model_dir, model_name))
       print("Model saved:", model_name)
-    """
+    
 
 
 

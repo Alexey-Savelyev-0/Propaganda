@@ -9,7 +9,7 @@ import datetime
 import pprint
 import applicaAI_tc
 import classification.applica_utils as classification
-
+from transformers import AutoTokenizer, RobertaForSequenceClassification
 from sklearn.model_selection import train_test_split
 
 if not os.path.isdir(classification.model_dir):
@@ -44,26 +44,16 @@ train_articles, eval_articles, train_spans, eval_spans, train_techniques, eval_t
 train_dataloader = classification.get_data(train_articles, train_spans, train_techniques)
 eval_dataloader = classification.get_data(eval_articles, eval_spans, eval_techniques)
 
-if classification.LANGUAGE_MODEL == "Roberta":
-  from transformers import RobertaForSequenceClassification
-  tokenizer = RobertaTokenizer.from_pretrained('roberta-base', lower_case=True)
-  model = RobertaForSequenceClassification.from_pretrained(
-      "roberta-base",
-      num_labels = len(classification.distinct_techniques),
-      output_attentions = False, 
-      output_hidden_states = False,
-  )
+tokenizer = classification.tokenizer
 
-else:
-  from transformers import BertForSequenceClassification
-  # tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', lower_case=True)
-  model = BertForSequenceClassification.from_pretrained(
-      "bert-base-uncased",
-      num_labels = len(classification.distinct_techniques),
-      output_attentions = False, 
-      output_hidden_states = False,
-      
-  )
+model = RobertaForSequenceClassification.from_pretrained(
+    "roberta-large",
+    num_labels = len(classification.tag2idx),
+    output_attentions = False,
+    output_hidden_states = False,
+)
+
+
 
 model = applicaAI_tc.EnsembleModel(15)
 if torch.cuda.is_available():

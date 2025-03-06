@@ -15,7 +15,6 @@ import identification.applica_utils as applica_utils
 
 
 def train(model, train_dataloader, eval_dataloader, epochs=5, save_model=True):
-  CUDA_LAUNCH_BLOCKING=1
   max_grad_norm = 1.0
 
   for _ in trange(epochs, desc="Epoch"):

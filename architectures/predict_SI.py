@@ -5,27 +5,18 @@ import argparse
 import wget
 import gdown
 
-from src import identification
-
+import identification
+import identification.hitachi_utils as hitachi_utils
 from transformers import BertTokenizer
-
+from pathlib import Path
+from hitachi_si import HITACHI_SI, SLC
 # parser = argparse.ArgumentParser()
 # parser.add_argument('--interactive', nargs='?',  type=bool, default=False, help='Set True to enter custom input') 
 
 # args = parser.parse_args()
 
-home_dir = "./"
-data_dir = os.path.join(home_dir, "datasets")
-model_dir = os.path.join(home_dir, "model_dir")
-if not os.path.isdir(model_dir):
-  os.mkdir(model_dir)
-
-tokenizer = identification.tokenizer
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model_path = os.path.join(model_dir, 'model_370_44_bioe.pt')
 
 
-model = torch.load(model_path, map_location={'cuda:0':'cpu'})
 
 def get_dev_outputs(article_dir="dev-articles"):
   test_articles, test_article_ids = identification.read_articles('dev-articles')
@@ -68,15 +59,17 @@ def get_predictions_indices(text):
 
 
 
-if __name__ == "__main":
-  # if args.interactive:
-  #   print("Enter Input: ")
-  #   input_sentence = input()
-  #   test_articles = [input_sentence]
-  # else:
+if __name__ == "__main__":
+
+  tokenizer = hitachi_utils.tokenizer
+  device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+  #model_path = os.path.join(hitachi_utils.model_dir, hitachi_utils.CURRENT_MODEL)
+  model_path = Path(hitachi_utils.model_dir) / hitachi_utils.CURRENT_MODEL
+
+  model = torch.load(model_path, map_location=hitachi_utils.device,weights_only=False)
   test_articles = ["A propaganda jihadi test to be done!", "Just a random piece of text which should be a normal text"]
   print("Starting prediction")
-  model = torch.load(os.path.join(model_dir, 'model_370_44_bioe.pt'), map_location={'cuda:0':'cpu'})
+  
   test_spans = [[]] * len(test_articles)
 
   test_dataloader, test_sentences, test_bert_examples = identification.input_processing.get_data(test_articles, test_spans, indices=np.arange(len(test_articles)))

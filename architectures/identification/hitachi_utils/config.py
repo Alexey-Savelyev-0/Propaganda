@@ -12,17 +12,11 @@ EPOCHS = 4
 TLC = False
 SLC = False
 SAVE_MODEL = True
+SELF_TRAIN = False
+
+CURRENT_MODEL = "hitachi_si_20250304_060455" + ".pt"
 
 
-
-
-""" To do:
-
-Make BERT trainable (for last 2 epochs)
-Custom Learning rates between RoBERTa
-
-
-"""
 
 
 

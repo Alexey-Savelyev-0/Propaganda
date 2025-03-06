@@ -37,10 +37,14 @@ def get_model_predictions(model, dataloader,model_type = 'bert'):
     with torch.no_grad():
       logits = model(b_input_ids, token_type_ids=None, attention_mask=b_input_mask)
     logits = logits.get("logits")
-    logits = logits.detach().cpu().numpy()
+    if type(logits) is list:
+      predictions = logits
+    else:
+      logits = logits.detach().cpu().numpy()
+      predictions.extend([list(p) for p in np.argmax(logits, axis=2)])
     label_ids = b_labels.to('cpu').numpy()
     s_ids = b_ids.to('cpu').numpy()
-    predictions.extend([list(p) for p in np.argmax(logits, axis=2)])
+    
     true_labels.extend(label_ids)
     sentence_ids.extend(s_ids)
     nb_eval_steps += 1
