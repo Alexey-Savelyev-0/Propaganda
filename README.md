@@ -1,1 +1,2 @@
-An ablation study of the top performing models for Computational Propaganda Detection in SemEval2020 Task 11. The models here are the both Span Identification, and Task Classification of Hitachi and ApplicaAI.
+An ablation study of the top performing models for Computational Propaganda Detection in SemEval2020 Task 11. 
+The task is seperated into 2 subtasks - Span Identification (SI) and Technique Classification (TC). Span identification outlines the range of the propaganda in text, Technique Classification classifies the rhetoric device being used. For both tasks, various models are developed and compared in a seperate paper (which for legal reasons is not placed here). 
