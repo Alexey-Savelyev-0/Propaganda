@@ -52,4 +52,8 @@ Note that this list is chosen due to the available training data - the specific 
 Each snippet is assigned a single technique which suits it best (note that snippets may overlap and contain one another). This is where both this code and the original task end the work - these classified snippets may be used for educational purposes, or to inspire critical thinking during the consumption of a specific fed text. An expansion on the latter use-case would be necessary for convenience and usability - for instance, a web-extension.
 
 # Architecture
-Below is a description of the architectures used for this task.
+Below is a description of the architectures used for this task. <br/>
+The base version of the model can be described as a token-wise classification task using BIO classes, followed by sentence-wide classifications into one of the 18 listed classes. These classification models can vary in terms of complexity - the most simple ones involve a BERT model followed by a classification layer. The model can however be improved via various additions, such as __Multi-Task Learning__, and manual token enrichment.
+<img width="611" height="1141" alt="1ff91b8d65f96ffe149d1dc69f33209c4720af32" src="https://github.com/user-attachments/assets/07cb1720-f1c8-47d5-ae7a-82526abc7b68" />
+The classification task is more straightforward - it singly relies on a BERT based classifier.
+
