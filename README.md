@@ -1,5 +1,8 @@
 # Summary
-An ablation study of the top performing models for Computational Propaganda Detection in SemEval2020 Task 11. 
+An ablation study + implementation of the top performing models for Computational Propaganda Detection. 
+Propaganda is pervasive in digital media, often shaping the opinions of its consumer in subtle ways. This slight manipulation may prove to be highly lucrative for the propagandist, with benefits ranging from improving their perceived public image, to shaping support for an important cause. Conversely, the consumer is affected by propaganda in a manner which they are unlikely to be comfortable with, knowing the intention of the author and the information which had been kept away from them. As such, it is in the consumer's best interest to be aware of the biases present in the media they consume.
+
+This project therefore discusses the various forms digital propaganda may take form, previous campaigns that were ran, and the trajectory of propaganda in the 21st century. It also evaluates various methodologies for detecting digital propaganda, with tests ran and models developed on some of the most promising approaches.
 The task is seperated into 2 subtasks - __Span Identification (SI)__ and __Technique Classification (TC)__. Span identification outlines the range of the propaganda in text, Technique Classification classifies the rhetoric device being used. For both tasks, various models are developed and compared in a seperate paper. 
 
 # Task
