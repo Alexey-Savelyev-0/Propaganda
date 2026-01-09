@@ -1,11 +1,20 @@
-# Summary
+
+## Table of Contents
+- [Introduction](#Introduction)
+- [Theory](#Theory)
+- [Implementation](#Implementation)
+- [Results and Evaluation](#Results)
+  
+
+
+# Introduction
 An ablation study + implementation of the top performing models for Computational Propaganda Detection. 
 Propaganda is pervasive in digital media, often shaping the opinions of its consumer in subtle ways. This slight manipulation may prove to be highly lucrative for the propagandist, with benefits ranging from improving their perceived public image, to shaping support for an important cause. Conversely, the consumer is affected by propaganda in a manner which they are unlikely to be comfortable with, knowing the intention of the author and the information which had been kept away from them. As such, it is in the consumer's best interest to be aware of the biases present in the media they consume.
 
 This project therefore discusses the various forms digital propaganda may take form, previous campaigns that were ran, and the trajectory of propaganda in the 21st century. It also evaluates various methodologies for detecting digital propaganda, with tests ran and models developed on some of the most promising approaches. This page focuses on the latter of these tasks, with a comprehensive description of the models selected, developed, and evaluated. For a discussion of the former details, please refer to [[INSERT DISSERTATION HERE]].
 The task is seperated into 2 subtasks - __Span Identification (SI)__ and __Technique Classification (TC)__. Span identification outlines the range of the propaganda in text, Technique Classification classifies the rhetoric device being used. For both tasks, various models are developed and compared in a seperate paper. 
 
-# Task
+# Theory
 The files in this repository can be considered to belong to one of two studies - classification and identification. Both studies are on sub-tasks required for the pipeline of computational propagranda detection to function. These are briefly explained below.
 ## Identification
 Propaganda may be identified in text by performing some level of classification of individual sub-components on the text - the length of the sub-component depends on both the setup and the training data provided to the models. For the sake of this task, the level which we concern ourselves with is the word-wise level - by classifying individual words as belonging to the propaganda class, we may create 'spans' of it in text. These are meant to be equivalent to rhetoric techniques used in SemEval 2020 Task 11. As an example, in the sentence:
@@ -54,9 +63,11 @@ Note that this list is chosen due to the available training data - the specific 
 
 Each snippet is assigned a single technique which suits it best (note that snippets may overlap and contain one another). This is where both this code and the original task end the work - these classified snippets may be used for educational purposes, or to inspire critical thinking during the consumption of a specific fed text. An expansion on the latter use-case would be necessary for convenience and usability - for instance, a web-extension.
 
-# Architecture
+
+# Implementation
 Below is a description of the architectures used for this task. <br/>
 The base version of the model can be described as a token-wise classification task using BIO classes, followed by sentence-wide classifications into one of the 18 listed classes. These classification models can vary in terms of complexity - the most simple ones involve a BERT model followed by a classification layer. The model can however be improved via various additions, such as __Multi-Task Learning__, and manual token enrichment.
 <img width="611" height="1141" alt="1ff91b8d65f96ffe149d1dc69f33209c4720af32" src="https://github.com/user-attachments/assets/07cb1720-f1c8-47d5-ae7a-82526abc7b68" />
 The classification task is more straightforward - it singly relies on a BERT based classifier.
 
+# Results
