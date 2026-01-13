@@ -2,6 +2,9 @@
 Take Roberta-CRF, train on gold data using vertribri loss.
 Take the that model, label silver dataset.
 Train new model on silver dataset using vertribri loss.
+Please note this model is retired - its development was not finished and as such was not evaluated.
+
+
 """
 
 

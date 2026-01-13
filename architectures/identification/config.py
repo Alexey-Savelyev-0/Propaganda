@@ -1,26 +1,22 @@
 import os
 import torch
-from transformers import BertTokenizerFast, RobertaTokenizerFast
+from transformers import BertTokenizerFast, RobertaTokenizerFast, RobertaModel
 import transformers
 
-BATCH_SIZE = 6
-NUM_ARTICLES = 5
+BATCH_SIZE = 16
+NUM_ARTICLES = 300
 TAGGING_SCHEME = "BIO"
 LANGUAGE_MODEL = "RoBERTa"
-LEARNING_RATE = 2.9e-6
-EPOCHS = 4
-TLC = False
-SLC = False
+EPOCHS = 5
+TLC = True
+SLC = True
 SAVE_MODEL = True
 SELF_TRAIN = False
-
-CURRENT_MODEL = "hitachi_si_20250304_060455" + ".pt"
-
-
-
-
-
-
+LEARNING_RATE = 1e-5
+POS = True
+NER = True
+NELA = False
+CRF = True
 
 
 distinct_techniques = {
@@ -47,7 +43,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 if LANGUAGE_MODEL == "RoBERTa":
-  tokenizer = RobertaTokenizerFast.from_pretrained('roberta-base')
+  tokenizer = RobertaTokenizerFast.from_pretrained('roberta-base', lower_case=True)
+  #model = RobertaModel.from_pretrained('roberta-base')
 elif LANGUAGE_MODEL == "BERT":
   tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased', lower_case=True)
   model = transformers.BertModel.from_pretrained('bert-base-uncased',output_hidden_states=True)
@@ -62,21 +59,10 @@ else:
 
 
 
-
-
-
-
-
-
-
-
-
-#data_dir= r"\\dcs\\22\\u2211596\\3_UG\\3rd_Year_Project\\main\\Propaganda\\datasets"
-#model_dir=  r"\\dcs\\22\\u2211596\\3_UG\\3rd_Year_Project\\main\\Propaganda\\architectures\\model_dir"
 home_dir = "C:/CS/3rd_Year_Project/Propaganda-detection-experiments/main"
-#home_dir = "/dcs/22/u2211596/3_UG/3rd_Year_Project/main/Propaganda"
+home_dir = "/dcs/22/u2211596/3_UG/3rd_Year_Project/main/Propaganda"
 data_dir = os.path.join(home_dir, "datasets")
-model_dir = os.path.join(home_dir, "model_dir")
+model_dir = os.path.join(home_dir, "si_models")
 
 
 if not os.path.isdir(model_dir):

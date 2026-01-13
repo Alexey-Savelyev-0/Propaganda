@@ -5,234 +5,166 @@ import numpy as np
 import datetime
 import os
 import spacy
-# import crf
+from tqdm import tqdm, trange
+
+from torch.optim.lr_scheduler import StepLR
 import torch.nn.functional as F
 from torchcrf import CRF
 from sklearn.model_selection import train_test_split
-import identification.hitachi_utils as hitachi_utils
+import identification as identification
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torch import optim
-import classification.hitachi_utils as classification
-import identification
-device = hitachi_utils.device
-NLP = spacy.load("en_core_web_sm")
+import classification as classification
+import identification as identification
+from torch.utils.data import DataLoader, ConcatDataset
+from sklearn.model_selection import KFold
 
-
-"""
-To Do: 
-1. Flesh out HITACHI_SI
-2. Integrate with boilerplate code
-3. Create auxillary tasks
-The tasks are as follows:
-1. Token - Level Technique Classification
-2. Sentence Level Binary Classification
-"""
-
-class SLC(nn.Module):
-    def __init__(self,PLM=hitachi_utils.LANGUAGE_MODEL, input_dim=840, hidden_dim=600, output_dim=15):
-        super(SLC, self).__init__()
-        self.FFN = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim), # hidden layer
-            nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim) #output
-            
-        )
-        self.BiLSTM = nn.LSTM(input_dim, hidden_dim, bidirectional=True,batch_first=True)
-        crf = CRF(output_dim)
-    def forward(self, input_ids, lengths, pos_features, token_type_ids=None):
-        packed_input = pack_padded_sequence(input_ids, lengths.cpu(), batch_first=True, enforce_sorted=False)
-        lstm_output, _ = self.BiLSTM(packed_input)
-        lstm_output, _ = pad_packed_sequence(lstm_output, batch_first=True)
-        
-        # Extract BoS token hidden state (first token)
-        bos_output = lstm_output[:, 0, :]  # Shape: (batch_size, hidden_dim * 2)
-        
-        # Concatenate structural features (e.g., positional & length info)
-        bos_output = torch.cat((bos_output, pos_features), dim=1)
-        
-        # Pass through FFN
-        ff_output = self.FFN(bos_output)  # Shape: (batch_size, hidden_dim)
-        
-        # Compute the final classification output using v and b
-        cls_output = torch.sigmoid(self.v(ff_output))  # Shape: (batch_size, 1)
-        
-        # CRF layer for sequence labeling
-        bio_logits = self.crf(lstm_output)
-        
-        return cls_output, bio_logits
-
-
+device = identification.device
 
 
 class HITACHI_SI(nn.Module):
-    def __init__(self,PLM=hitachi_utils.LANGUAGE_MODEL, input_dim=840, hidden_dim=600, output_dim=15):
+    def __init__(self,PLM=identification.LANGUAGE_MODEL, input_dim= 1099, hidden_dim=600, output_dim=100,create_slc=True,weight_pos=torch.tensor([1], dtype=torch.float)):
         super(HITACHI_SI, self).__init__()
         if PLM == "RoBERTa":
-            self.PLM = transformers.RobertaModel.from_pretrained('roberta-base',output_hidden_states=True)
+            self.PLM = transformers.RobertaModel.from_pretrained('roberta-large',output_hidden_states=True)
+            self.PLM.add_pooling_layer = False
             # +1 means we currently include embedding layer in the attnetion weights - not sure that is correct
-            num_layers = self.PLM.config.num_hidden_layers +1
-            self.s = nn.Parameter(torch.randn(num_layers))  # Attention weights
-            # c is a scalar, s is a vector of dim num_layers 
-            self.c = nn.Parameter(torch.ones(1)) 
+        else:
+            self.PLM = transformers.BertModel.from_pretrained('bert-base-uncased',output_hidden_states=True)
+            self.PLM.to(device)
+        # initially we freeze the LLM to stabilise the model
+        for param in self.PLM.parameters():
+            param.requires_grad = True
+        num_layers = self.PLM.config.num_hidden_layers +1
+        self.s_si = nn.Parameter(torch.randn(num_layers))  # Attention weights for both span identification and sentence level classification
+        self.s_slc = nn.Parameter(torch.rand(num_layers))
 
-        self.BiLSTM = nn.LSTM(input_dim, hidden_dim, bidirectional=True,batch_first=True)
+            # c is a scalar, s is a vector of dim num_layers 
+        self.c_si = nn.Parameter(torch.ones(1)) 
+        self.c_slc = nn.Parameter(torch.ones(1)) 
+
+        self.BiLSTM = nn.LSTM(input_dim, hidden_dim, num_layers=2, bidirectional=True,batch_first=True)
         self.output_dim = output_dim
         self.relu = nn.ReLU()
-        self.FFN_BIO = nn.Linear(hidden_dim*2, 3)
-        self.FFN_TC = nn.Linear(input_dim, hidden_dim)
-        self.SLC = SLC()
-        self.nlp = spacy.load("en_core_web_sm")
+        self.FFN_BIO = nn.Sequential(
+        nn.Linear(hidden_dim * 2, 200),  
+        nn.ReLU(),
+        nn.Linear(200, 3)   
+        )
+        self.FFN_TC = nn.Sequential(
+        nn.Linear(hidden_dim * 2, 200),   
+        nn.ReLU(),
+        nn.Linear(200, 15)                
+    )
+        if create_slc:
+            self.SLC = SLC(weight_pos=weight_pos)
         # for auxillary task2 we need another similar model to HITACHI_SI to predict which sentences to train on
 
-        self.CRF = CRF(3,batch_first=True)
+        self.CRF_BIO = CRF(3,batch_first=True)
+        self.CRF_TC = CRF(15,batch_first=True)
+        self.to(device)    
+        self.criterion = nn.CrossEntropyLoss(ignore_index=-100)
 
-    def forward(self,input_ids=None,lengths=None,token_type_ids = None, labels_TC = None, attention_mask = None):
-        PLM_output,lengths,token_type_ids,labels_TC = self.get_sentence_inputs(input_ids,lengths = lengths,labels_TC = labels_TC,labels_span = token_type_ids)
-        assert PLM_output.shape[0] == lengths.shape[0]
-        
-        if attention_mask is None:
-            attention_mask = (input_ids != 0).long()
-        packed_input = pack_padded_sequence(PLM_output.float(), lengths.cpu(), batch_first=True, enforce_sorted=False)
-        lstm_output, _ = self.BiLSTM(packed_input)
-        lstm_output, _ = torch.nn.utils.rnn.pad_packed_sequence(lstm_output, batch_first=True)
-        
-        BIO_output = self.FFN_BIO(lstm_output)
-        padding_count = input_ids.shape[1] - BIO_output.shape[1]
-        padding = (0, 0, 0, padding_count)
-        BIO_output = F.pad(BIO_output, padding, "constant", 0)
-        padding = (0, padding_count)
-        
-        if token_type_ids is not None:  # Training mode (return loss)
-            token_type_ids= F.pad(token_type_ids, padding, "constant", -1)
-            labels_TC = F.pad(labels_TC, padding, "constant", -1)
-            mask = torch.tensor((token_type_ids != -1), dtype=torch.bool, device=BIO_output.device)
-            assert (mask[:, 0] == 1).all(), "Error: Some sequences have mask[:, 0] == 0!"  # Create mask for ignoring padded tokens
-            crf_loss = -self.CRF(BIO_output, token_type_ids, mask=mask, reduction='mean' )  # Compute CRF loss
-            return crf_loss
-        
-        if labels_TC is not None and classification.TLC == True:  # Training mode (return loss)
-            tc=self.FFN_TC(lstm_output)
-        else:  
-            predicted_labels = self.CRF.decode(BIO_output)  
-            return {"logits": predicted_labels}
-    def get_sentence_inputs(self,input_ids=None,lengths=None,labels_span = None,labels_TC = None):
-        
-        sentence_reps = []
-        sentence_lengths = []
-        sentence_span_labels = []
-        sentence_tc_labels = []
-        for i, sentence_ids in enumerate(input_ids):
-            token_sentences= hitachi_utils.tokenizer.convert_ids_to_tokens(sentence_ids, skip_special_tokens=True)
-            token_sentences = [token for token in token_sentences if token != hitachi_utils.tokenizer.pad_token or token != hitachi_utils.tokenizer.cls_token or token != hitachi_utils.tokenizer.sep_token]
-            string_sentence = hitachi_utils.tokenizer.convert_tokens_to_string(token_sentences)
-            string_sentence = string_sentence.replace("Ġ", " ")
-            string_sentence = string_sentence.replace("ĊĊ", "\n")
-            special_tokens = [
-                    hitachi_utils.tokenizer.pad_token,
-                    hitachi_utils.tokenizer.cls_token,
-                    hitachi_utils.tokenizer.sep_token,
-                    "<unk>",
-                    "<s>"]
-        
-            for token in special_tokens:
-                string_sentence = string_sentence.replace(token, "")
-            if labels_span is not None:
-                sentence_rep, updated_labels, updated_tc_labels = self.get_token_representation(string_sentence,sentence_ids,labels_span[i],labels_TC[i])
-                sentence_lengths.append(sentence_rep.shape[0])
-                sentence_reps.append(sentence_rep)
-                sentence_span_labels.append(updated_labels)
-                sentence_tc_labels.append(updated_tc_labels)
+    def forward(self,input_ids=None,input_lengths=None,token_type_ids = None, labels_TC = None, token_enrichment=None,token_mapping=None, attention_mask = None):
+        PLM_output_SI, PLM_output_SLC=self.get_token_representation(input_ids,context=token_enrichment,mapping=token_mapping,mask=attention_mask)
+        lengths = attention_mask.sum(dim=1)
+        if identification.SLC:
+            if token_type_ids is not None:
+                slc_output, slc_loss = self.SLC(PLM_output_SLC,lengths=lengths,token_type_ids=token_type_ids)
             else:
-                sentence_rep,_,_ = self.get_token_representation(string_sentence,sentence_ids)
-                sentence_lengths.append(sentence_rep.shape[0])
-                sentence_reps.append(sentence_rep)
-        padded_reps = torch.nn.utils.rnn.pad_sequence(sentence_reps,batch_first=True)
-        sentence_lengths = torch.tensor(sentence_lengths)
-        if labels_span is None:
-            return padded_reps, sentence_lengths, None, None
-        sentence_span_labels = torch.nn.utils.rnn.pad_sequence(sentence_span_labels,batch_first=True)
-        sentence_tc_labels = torch.nn.utils.rnn.pad_sequence(sentence_tc_labels,batch_first=True)
-        return padded_reps, sentence_lengths, sentence_span_labels, sentence_tc_labels
-
-       
-    
-    
-    def get_token_representation(self,sentence,sentence_ids,labels_span=None,labels_tc=None):
-        ### assume sentence is already tokenized
-        """Token representation is obtained by concatting the plm representation, the PoS tag, and NE tag."""
-        plm,labels,tc_labels = self.get_PLM_layer_attention(sentence,sentence_ids,labels_span=labels_span,labels_TC=labels_tc)
+                slc_output, _ = self.SLC(PLM_output_SLC,lengths = lengths)
         
-        ner, pos = self.get_special_tags(sentence)
-        plm = plm.to(device)
-        ner = ner.to(device)
-        pos = pos.to(device)
-        output = torch.cat((plm, ner, pos),dim=-1)
+        #packed_input = pack_padded_sequence(PLM_output_SI.float(), lengths.cpu(), batch_first=True, enforce_sorted=False)
+        #unsorted_indices = packed_input.unsorted_indices
+        lstm_output, _ = self.BiLSTM(PLM_output_SI)
+        #lstm_output, _ = torch.nn.utils.rnn.pad_packed_sequence(lstm_output, batch_first=True)
+        #lstm_output = lstm_output[unsorted_indices]
+        BIO_output = self.FFN_BIO(lstm_output)
+        tc=self.FFN_TC(lstm_output)
+        padding_count = input_ids.shape[1] - BIO_output.shape[1]
+        
+        padding = (0, 0, 0, padding_count)
+        #BIO_output = F.pad(BIO_output, padding, "constant", 0)
+        #tc = F.pad(tc, padding, "constant", 0)
+        padding = (0, padding_count)
+        mask = attention_mask > 0
+        if token_type_ids is not None:  # Training mode (return loss)
+            tags_safe = token_type_ids.clone()
+            tags_safe[tags_safe == -1]   = 0
+            tags_safe[tags_safe == -100] = 0
+            #assert (attention_mask[:, 0] == 1).all()
+            if identification.CRF:
+                bio_loss = -self.CRF_BIO.forward(BIO_output, tags_safe, mask=mask, reduction='none' )  # Compute CRF loss
+            else:
+                #print(BIO_output.shape)
+                #print(token_type_ids.shape)
+                BIO_output = BIO_output.permute(0, 2, 1)
+                bio_loss = self.criterion(BIO_output, token_type_ids)
+                # assign classes to logits of FFN then calc cross entropy loss
+            if labels_TC is not None and identification.TLC == True:  # Training mode (return loss)
+            # not clear W and b need to be added, although I suppose it can't hurt
+                if identification.CRF:
+                    tc_loss = -self.CRF_TC.forward(tc,labels_TC,mask=mask, reduction='none')
+                    # assign classes to logits of FFN then calc cross entropy loss
+                else:
+                    tc = tc.permute(0, 2, 1)
+                    tc_loss = self.criterion(tc, labels_TC)
+        else: 
+            # slc_output is of dim (b) and contains 1s and 0s. we only want to return the
+            # BIO predicted labels if that batch has a 1.
+            if identification.CRF:
+                predicted_labels = self.CRF_BIO.decode(BIO_output,mask=mask)  
+            else:
+                predicted_labels = torch.argmax(BIO_output, dim=-1) 
+            final_labels = []
+            for keep_flag, labels in zip(slc_output.tolist(), predicted_labels):
+                if keep_flag == 1:
+                #if True:
+                    final_labels.append(labels)
+                    
+                else:
+                    final_labels.append([0]*256)
+            return final_labels
+        if identification.SLC:
+            has_span = ((token_type_ids == 1) | (token_type_ids == 2)).any(dim=1) 
+            has_span_float = has_span.float()  
+            span_weights = has_span_float               # shape (B,)
+
+            gated_bio = span_weights * bio_loss         # only keep if has_span=1
+            gated_tc  = span_weights * tc_loss 
+            #return bio_loss.mean()
+            return (slc_loss +  gated_bio ).mean()
+
+
+    
+    
+    def get_token_representation(self,sentence_ids,context=None,mapping = None,mask = None):
+        """
+        Inputs: batch of setences, batch of spans, batch of techniques, batch of cotnext tensors, mapping
+        Token representation is obtained by concatting the plm representation, the PoS tag, and NE tag."""
+        plm_si, plm_slc = self.get_PLM_layer_attention(sentence_ids,mapping=mapping, mask = mask)
+        
+        plm_si = plm_si.to(device)
+        plm_slc = plm_slc.to(device)
+        concatted_si = torch.cat((plm_si, context),dim=-1)
+        concatted_slc = torch.cat((plm_slc, context),dim=-1)
         # flatten out to 2d, as first dimension is always 1
         
-        assert output.shape[0] == 1
-        output = output.squeeze(0)
-        return output,labels,tc_labels
+        return concatted_si,concatted_slc
     
 
-    def get_PLM_layer_attention(self,sentence,sentence_ids,avg_subtokens=True,tokenizer=hitachi_utils.tokenizer,labels_span=None,labels_TC=None):
+    def get_PLM_layer_attention(self,sentence_ids,avg_subtokens=False,mapping=None, mask=None):
         """ To obtain input representations, we provide a layer-wise attention to fuse the outputs of PLM layers.
         To obtain the ith word, we sum PLM(i,j) over j, j being the layer index. In this sum
         we apply a softmax to a trainable parameter vector, which is multiplied by the output of the PLM layer.
-        The concrete details may be found in the paper.
+        One output is for the main task e.g. Span Identification, and One is for sentence Level Classification, which uses a seperate attention mechanism.
         """
         
-        # for BERT
-        inputs = tokenizer(sentence, return_tensors="pt", padding=True, truncation=True, return_offsets_mapping=True)
-        offset = inputs["offset_mapping"].tolist()[0]
-        inputs = tokenizer(sentence, return_tensors="pt", padding=True, truncation=True)
-        spacy_sentence = self.get_tokens(sentence)
-        num_words = len(spacy_sentence) + 2
-        token_to_word_mapping = {}
-        # ensure token_to_word_mapping same format as before
-        token_to_word_mapping[0] = 0
-        first_token_indices = torch.full((num_words,), -1, dtype=torch.long, device=inputs["input_ids"].device)
-        for token_idx, sub_offset in enumerate(offset):
-            sub_start, sub_end = sub_offset
-            mapped_word_idx = -1  # Default if no match
-            
-            # Find the spaCy word containing this subword's start position
-            for word_idx, (_, word_start, word_end) in enumerate(spacy_sentence):
-                if word_start <= sub_start < word_end:
-                    mapped_word_idx = word_idx
-                    break
-    
-            token_to_word_mapping[token_idx] = mapped_word_idx
-
-        for token_idx, word_idx in token_to_word_mapping.items():
-            if first_token_indices[word_idx] == -1:
-                first_token_indices[word_idx] = token_idx
+        outputs = self.PLM(
+    input_ids=sentence_ids,
+    attention_mask=mask, output_hidden_states=True
+        )
         
-        # Handle [SEP] token's word (last word index)
-        sep_word_idx = num_words -1 
-        sep_token_idx = inputs["input_ids"].size(1) - 1  # Last token is [SEP]
-        if first_token_indices[sep_word_idx] == -1:
-            first_token_indices[sep_word_idx] = sep_token_idx
-        
-        # Fill remaining -1 (unmapped words) with 0 ([CLS])
-        first_token_indices[first_token_indices == -1] = 0
-        
-        # Gather labels
-        if labels_span is not None:
-            word_labels_span = labels_span[first_token_indices]
-        else:
-            word_labels_span = None
-        if labels_TC is not None:
-            word_labels_TC = labels_TC[first_token_indices]
-        else:
-            word_labels_TC=None
-
-
-
-        device = next(self.PLM.parameters()).device
-        inputs = {key: value.to(device) for key,value in inputs.items()}
-            
-            
-        outputs = self.PLM(**inputs)
         hidden_states = outputs.hidden_states  # Tuple of shape (num_layers, batch_size, seq_len, hidden_dim)
 
         
@@ -242,44 +174,34 @@ class HITACHI_SI(nn.Module):
 
         hidden_states = torch.stack(hidden_states, dim=0)
 
-        if avg_subtokens == True:
-            averaged_hidden_states = torch.zeros((num_layers, batch_size, num_words, hidden_dim), device=hidden_states.device)
-            
-            word_indices = torch.tensor(list(token_to_word_mapping.values()), device=hidden_states.device)
-            assert word_indices.shape[0] == seq_len
-            word_counts = torch.zeros((batch_size, num_words, 1), device=hidden_states.device)
-            averaged_hidden_states = averaged_hidden_states.scatter_add(2, word_indices.view(1, 1, -1, 1).expand(num_layers, batch_size, -1, hidden_dim), hidden_states)
-            ones = torch.ones((batch_size, seq_len, 1), device=hidden_states.device)
-            word_counts = word_counts.scatter_add(1, word_indices.view(1, -1, 1).expand(batch_size, -1, 1), ones)
-            word_counts[word_counts == 0] = 1 
-            averaged_hidden_states /= word_counts.unsqueeze(0)
-            hidden_states=averaged_hidden_states
-
-
-
-        attn_weights = F.softmax(self.s, dim=-1) 
-        attn_weights = attn_weights.view(num_layers, 1, 1, 1)
+        output_si =  outputs.last_hidden_state
+        attn_weights_si = F.softmax(self.s_si, dim=-1) 
+        attn_weights_si = attn_weights_si.view(num_layers, 1, 1, 1)
+        attn_weights_slc = F.softmax(self.s_slc, dim=-1) 
+        attn_weights_slc = attn_weights_slc.view(num_layers, 1, 1, 1)
         
         
-        # for every token i, we go through layers j, multiplyingsoftmax(s) 
-        fused_embeddings = torch.sum(attn_weights * hidden_states, dim=0)
-        # I don't know why this is required
-        test = self.c.clone()
-        output = torch.mul(fused_embeddings, test)
-        return output,word_labels_span, word_labels_TC
+        fused_embeddings_si = torch.sum(attn_weights_si * hidden_states, dim=0)
+        fused_embeddings_slc = torch.sum(attn_weights_slc * hidden_states, dim=0)
+        output_si = torch.mul(fused_embeddings_si, self.c_si)
+        output_slc = torch.mul(fused_embeddings_slc,self.c_slc)
+        return output_si,output_slc
     
-    def get_special_tags(self,sentence):
+
+    
+
+
+    def get_special_tags(self,sentences):
         """ Tokenizes sentences, returns their special tags in dimensions (sentences, sentence-length, vector length)
         In Hitachi, special tags are: Part of Speech - PoS and Named Entities: One hot vector embeddings are generated for both
         If BERT is being used, 'special embeddings for CLS and SEP' are used.
         """
 
-
-        nlp = spacy.load("en_core_web_sm")
         
-        pos_tags = list(nlp.get_pipe("tagger").label_data)  
-        ner_tags = list(nlp.get_pipe("ner").labels)  
-        doc = nlp(sentence)
+        
+        pos_tags = self.pos_labels
+        ner_tags = self.ner_labels
+        doc = self.nlp(sentences)
         batch_pos_embeddings = []
         batch_ner_embeddings = []
         pos_embeddings = []
@@ -293,11 +215,8 @@ class HITACHI_SI(nn.Module):
         pos_embeddings.append(pos_CLS)
         ner_embeddings.append(ner_CLS)
         
-
         for token in doc:
-            # One-hot encoding for PoS, len+2 to account for CLS & SEP
             pos_one_hot = torch.zeros(len(pos_tags)+2)
-            # part of speech is returning empty
             if token.pos_ in pos_tags:
                 pos_one_hot[pos_tags.index(token.pos_)] = 1
             # One-hot encoding for Named Entity (NER)
@@ -318,45 +237,91 @@ class HITACHI_SI(nn.Module):
     def get_tokens(self,sentence):
         
         doc = self.nlp(sentence) # 
-            
-        # return text as a list of tokens
+
         return [(token.text,token.idx, token.idx + len(token.text)) for token in doc]
-class FFN_SLC(HITACHI_SI):
-    def __init__(self, input_dim, hidden_dim=200, output_dim=1):
-        super(FFN_SLC, self).__init__()
-        
-    def forward(self, x):
-        """
-        sentence class = sigmoid(
-        trainable vec transposed *
-        FFN(BiLISTM(BoS) concat positional info)
-        + bias
+
+
+
+
+
+class SLC(nn.Module):
+    def __init__(
+        self,
+          # frozen encoder supplied by the parent
+        #input_dim: int = 843,
+        # +75
+        input_dim = 1099,
+        hidden_dim: int = 600,
+        threshold: float = 0.5,
+        weight_pos=None                 
+    ):
+        super(SLC, self).__init__()
+        # encoder
+        self.bilstm = nn.LSTM(
+            input_dim,
+            hidden_dim,
+            num_layers = 2,
+            bidirectional=True,
+            batch_first=True
         )
-        in theory bias+ trainable vec should be accounted for in a pytorch linear module
-        """
-        return self.BiLSTM(x)
+
+        self.classifier = nn.Sequential(
+        nn.Linear(hidden_dim * 2, 500),  
+        nn.ReLU(),
+        nn.Linear(500, 1)   
+        )
+        # loss
+        self.loss_fn = nn.BCEWithLogitsLoss(reduction = 'none')
+        self.threshold = threshold
+
+    def forward(
+        self,
+        plm_output: torch.Tensor,                # (B, T, input_dim)
+        lengths:     torch.Tensor,               # (B,)  – sentence lengths
+        token_type_ids: torch.Tensor = None,     # (B, T)        # (B,)  – 0 or 1, optional
+    ):
+        labels = None
+        
+        #packed_input = pack_padded_sequence(
+            #plm_output, lengths.cpu(),
+            #batch_first=True, enforce_sorted=False
+        #)
+        #unsorted_indices = packed_input.unsorted_indices
+
+        packed_out, _ = self.bilstm( plm_output)
+        #lstm_out, _   = pad_packed_sequence(packed_out, batch_first=True)
+        #lstm_out = lstm_out[unsorted_indices]
+        cls_repr = packed_out[:, 0, :]                  
+        logits   = self.classifier(cls_repr).squeeze(-1) 
+
+        if token_type_ids is not None:
+            labels = ((token_type_ids == 1) | (token_type_ids == 2)).any(dim=1)     
+
+        if labels is not None:                            
+            loss  = self.loss_fn(logits, labels.float())
+
+            preds = (torch.sigmoid(logits) > self.threshold).long()
+            return preds,loss
+
+        else:
+                                      # INFERENCE
+            probs = torch.sigmoid(logits)                
+            preds = (probs > self.threshold).long()       
+            return preds, None
 
 
 
-
-
-
-
-
-    
 
 def hitachi_si_train():
-    torch.autograd.set_detect_anomaly(True)
-    hitachi_si = HITACHI_SI()
+    torch.cuda.empty_cache()
 
-    if torch.cuda.is_available():
-        hitachi_si.cuda()
     articles, article_ids = identification.read_articles("train-articles")
     """ note that the spans outlined in the classification section are 
     similar but different-> additional ones are added in the classification section.
     Therefore only use spans/techniques if span exists in identification section"""
     
     spans = identification.read_spans()
+    
     tc_spans, techniques = classification.read_spans()
     tc_spans_techniques = {}
     for i in range(len(tc_spans)):
@@ -365,71 +330,116 @@ def hitachi_si_train():
         
     techniques = identification.get_si_techniques(spans,tc_spans_techniques)
 
-    
-    NUM_ARTICLES = hitachi_utils.NUM_ARTICLES
+    import sys
+    NUM_ARTICLES = identification.NUM_ARTICLES
     articles = articles[0:NUM_ARTICLES]
+    article_ids = article_ids[0:NUM_ARTICLES]
     techniques = techniques[0:NUM_ARTICLES]
     spans = spans[0:NUM_ARTICLES]
     indices = np.arange(NUM_ARTICLES)
-    eval_indices = indices[int(0.9 * NUM_ARTICLES):]
     train_indices = indices[:int(0.9 * NUM_ARTICLES)]
-    silver_articles = identification.get_owt_articles()['text']
-    silver_indices = np.arange(NUM_ARTICLES)
-    silver_spans = [[] for _ in range(NUM_ARTICLES)]
+    eval_indices = indices[int(0.9 * NUM_ARTICLES):]
 
-    dataloader, train_sentences, train_bert_examples = identification.get_data(articles, spans, train_indices,techniques=techniques)
-    eval_dataloader, eval_sentences, eval_bert_examples = identification.get_data(articles, spans, eval_indices,techniques=techniques)
 
-    #dataloader = identification.get_data(articles, spans, techniques, train_indices, PLM = hitachi_si.PLM, s = hitachi_si.s, c = hitachi_si.c)
-    optimizer = optim.AdamW(hitachi_si.parameters(), lr=hitachi_utils.LEARNING_RATE, weight_decay=1e-2)
+
+    #_,dataset, train_sentences, train_bert_examples = identification.get_data_bert(articles, spans, indices,techniques=techniques,return_dataset=True)
+
+   
     total_loss = 0
+    splits = 5
+    print("begin training")
     
-    
-    for epoch_i in range(0, hitachi_utils.EPOCHS):
-        hitachi_si.train()
-        total_loss,steps = (0,0)
-        length = len(dataloader)
-        for step, batch in enumerate(dataloader):
-            #inputs, labels, masks, sentence_ids,techniques
-            b_input_ids, b_labels,b_masks,b_ids, b_techniques = batch
-            b_input_ids = b_input_ids.to(device)
-            b_labels = b_labels.to(device)     
-            b_techniques = b_techniques.to(device)   
-            loss = hitachi_si(b_input_ids, 
-                        token_type_ids = b_labels,
-                        labels_TC = b_techniques)
-            total_loss += loss.detach().item()
-            # not a fan, no idea why retain_graph needs to be true but we ball
-            loss.backward(retain_graph=True)
-            torch.nn.utils.clip_grad_norm_(hitachi_si.parameters(), max_norm=5.0)  # Gradient clipping
-            optimizer.step()
-            optimizer.zero_grad()
-            hitachi_si.zero_grad(
-            )
-            steps+=1
-        print(f"Epoch{epoch_i}: Avg Loss{total_loss/steps}")
-        hitachi_si.eval()
-        identification.get_score(hitachi_si,
+
+    train_dataloader, train_sentences, train_bert_examples = identification.get_data_bert(articles, spans, train_indices,techniques=techniques, shuffle=True)
+    eval_dataloader, eval_sentences, eval_bert_examples = identification.get_data_bert(articles, spans, eval_indices,techniques=techniques, shuffle=False)
+    n_pos = 0
+    n_neg = 0
+    for sentence in train_sentences:
+            if 1 in sentence.labels or 2 in sentence.labels:
+                n_pos+=1
+            else:
+                n_neg+=1
+            
+    WEIGHT_POS = n_neg /n_pos       # heavier weight for positives 
+    WEIGHT_POS 
+    WEIGHT_POS = torch.tensor([WEIGHT_POS], dtype=torch.float)
+
+    hitachi_si = HITACHI_SI(weight_pos=WEIGHT_POS)
+    if torch.cuda.is_available():
+            hitachi_si.cuda()
+    hitachi_si.to(device)
+    optimizer = optim.AdamW([
+    { "params": hitachi_si.PLM.parameters(),    "lr": 2.9e-6 },
+    { "params": hitachi_si.BiLSTM.parameters(), "lr": 6e-4 },
+    { "params": hitachi_si.CRF_BIO.parameters(), "lr": 6e-4 },
+    { "params": hitachi_si.CRF_TC.parameters(), "lr": 6e-4 },
+    { "params": hitachi_si.FFN_BIO.parameters(), "lr": 6e-4 },
+    { "params": hitachi_si.FFN_TC.parameters(), "lr": 6e-4 },
+    {"params": hitachi_si.SLC.parameters(), "lr": 6e-4 },
+    { "params": hitachi_si.c_si, "lr": 6e-4 },
+    { "params": hitachi_si.c_slc, "lr": 6e-4 },
+    { "params": hitachi_si.s_si, "lr": 6e-4 },
+    { "params": hitachi_si.s_slc, "lr": 6e-4 },
+], 
+                                weight_decay=1e-2)
+    scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
+              
+    for epoch_i in trange(0, identification.EPOCHS):
+            if epoch_i % 2 == 0:
+                for param in hitachi_si.PLM.parameters():
+                    param.requires_grad = True
+            print("new epoch")
+            hitachi_si.train()
+            total_loss,steps = (0,0)
+            for step, batch in enumerate(train_dataloader):
+                optimizer.zero_grad()
+                #inputs, labels, masks, sentence_ids,techniques
+                b_input_ids,b_labels,b_context,b_masks,b_ids, b_techniques, b_mapping = batch
+                b_input_ids = b_input_ids.to(device)
+                b_masks = b_masks.to(device)
+                b_labels = b_labels.to(device)     
+                b_techniques = b_techniques.to(device)   
+                b_context = b_context.to(device)
+                b_mapping = b_mapping.to(device)
+                loss = hitachi_si(b_input_ids, 
+                            token_type_ids = b_labels,
+                            labels_TC = b_techniques,
+                            token_enrichment = b_context,
+                            token_mapping = b_mapping,
+                            attention_mask = b_masks)
+                total_loss += loss.detach().item()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(hitachi_si.parameters(), max_norm=5.0)  # Gradient clipping
+                optimizer.step()
+                steps+=1
+            for name, param in hitachi_si.named_parameters():
+                if param.grad is None:
+                    print(f"No grad for {name}")
+                elif torch.all(param.grad == 0):
+                    print(f"Zero grad for {name}")
+            print(f"Epoch{epoch_i}: Avg Loss{total_loss/steps}")
+            hitachi_si.eval()
+            """
+            identification.get_score(hitachi_si,
+                train_dataloader,
+                train_sentences,
+                train_bert_examples,
+                mode="eval",
+                article_ids=article_ids,
+                indices=train_indices,model_type = 'n/a')
+            """
+            identification.get_score(hitachi_si,
             eval_dataloader,
             eval_sentences,
             eval_bert_examples,
             mode="eval",
             article_ids=article_ids,
-            indices=eval_indices)
-        
-        if hitachi_utils.SELF_TRAIN:
-            silver_dataloader, silver_sentences, silver_bert_examples = identification.get_data(silver_articles, silver_spans, silver_indices)
-            identification.get_score(hitachi_si,
-                silver_dataloader,
-                silver_sentences,
-                silver_bert_examples,
-                mode="train",
-                article_ids=article_ids,
-                indices=silver_indices)
-    if hitachi_utils.SAVE_MODEL:
-      model_name = 'hitachi_si_' + datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + '.pt'
-      torch.save(hitachi_si, os.path.join(hitachi_utils.model_dir, model_name))
-      print("Model saved:", model_name)
+            indices=eval_indices,model_type = 'n/a')
+            scheduler.step()
+            if identification.SAVE_MODEL:
+                    model_name = 'hitachi_si_'+datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + '.pt'
+                    torch.save(hitachi_si, os.path.join(identification.model_dir, model_name))
+                    print("Model saved:", model_name)
     
 
 
@@ -438,5 +448,4 @@ def hitachi_si_train():
 
 
 if __name__ == "__main__":
-    #model = transformers.BertModel.from_pretrained('bert-base-uncased',output_hidden_states=True)
     hitachi_si_train()
