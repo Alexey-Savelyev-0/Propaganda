@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "/dcs/22/u2211596/3_UG/3rd_Year_Project/main/Propaganda/architectures/predict_SI.py", line 117, in <module>
+    model = torch.load(model_path, map_location=identification.device,weights_only=False)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/dcs/22/u2211596/.conda/envs/myenv2/lib/python3.11/site-packages/torch/serialization.py", line 1432, in load
+    with _open_zipfile_reader(opened_file) as opened_zipfile:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/dcs/22/u2211596/.conda/envs/myenv2/lib/python3.11/site-packages/torch/serialization.py", line 763, in __init__
+    super().__init__(torch._C.PyTorchFileReader(name_or_buffer))
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: PytorchStreamReader failed reading zip archive: failed finding central directory

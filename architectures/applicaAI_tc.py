@@ -6,7 +6,7 @@ from transformers import RobertaModel, RobertaTokenizer
 class APPLICA_TC_1(nn.Module):
     def __init__(self, num_labels=15, ):
         super(APPLICA_TC_1, self).__init__()
-        self.roberta = RobertaModel.from_pretrained('roberta-large')
+        self.roberta = RobertaModel.from_pretrained('roberta-base')
         hidden_size = self.roberta.config.hidden_size
 
         self.classifier = nn.Linear(hidden_size, num_labels)
