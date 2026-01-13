@@ -1,3 +1,4 @@
+# IMPLEMENTED BY NEWSSWEEPER, SLIGHTLY ADAPTED FOR THIS PROJECT
 import os
 import csv
 from . import config

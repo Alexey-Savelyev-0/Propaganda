@@ -1,0 +1,37 @@
+2025-05-15 06:47:29,841 - INFO - Checking user submitted file
+2025-05-15 06:47:29,874 - INFO - Scoring the submission with precision and recall method
+2025-05-15 06:47:29,874 - INFO - Precision=0.000000/0=0.000000	Recall=0.000000/1053=0.000000
+2025-05-15 06:47:29,874 - INFO - F1=0.000000
+2025-05-15 06:48:19,610 - INFO - Checking user submitted file
+2025-05-15 06:48:19,688 - INFO - Scoring the submission with precision and recall method
+2025-05-15 06:48:19,922 - INFO - Precision=20.331771/92=0.220998	Recall=901.105781/1053=0.855751
+2025-05-15 06:48:19,922 - INFO - F1=0.351278
+2025-05-15 06:49:00,949 - INFO - Checking user submitted file
+2025-05-15 06:49:00,983 - INFO - Scoring the submission with precision and recall method
+2025-05-15 06:49:00,983 - INFO - Precision=0.000000/0=0.000000	Recall=0.000000/1053=0.000000
+2025-05-15 06:49:00,983 - INFO - F1=0.000000
+2025-05-15 06:49:42,776 - INFO - Checking user submitted file
+2025-05-15 06:49:42,847 - INFO - Scoring the submission with precision and recall method
+2025-05-15 06:49:43,073 - INFO - Precision=26.361523/100=0.263615	Recall=872.195904/1053=0.828296
+2025-05-15 06:49:43,073 - INFO - F1=0.399944
+2025-05-15 06:50:25,088 - INFO - Checking user submitted file
+2025-05-15 06:50:25,178 - INFO - Scoring the submission with precision and recall method
+2025-05-15 06:50:25,425 - INFO - Precision=23.611167/104=0.227030	Recall=926.045246/1053=0.879435
+2025-05-15 06:50:25,425 - INFO - F1=0.360894
+2025-05-15 06:51:07,351 - INFO - Checking user submitted file
+2025-05-15 06:51:07,425 - INFO - Scoring the submission with precision and recall method
+2025-05-15 06:51:07,649 - INFO - Precision=39.697925/121=0.328082	Recall=839.770253/1053=0.797503
+2025-05-15 06:51:07,649 - INFO - F1=0.464907
+2025-05-15 06:51:49,407 - INFO - Checking user submitted file
+2025-05-15 06:51:49,462 - INFO - Scoring the submission with precision and recall method
+2025-05-15 06:51:49,640 - INFO - Precision=36.199340/117=0.309396	Recall=686.885348/1053=0.652313
+2025-05-15 06:51:49,640 - INFO - F1=0.419717
+/dcs/22/u2211596/3_UG/3rd_Year_Project/main/Propaganda
+Loading main model: hitachi_lstm_si_20250515_010834.pt
+Loading main model: hitachi_si_20250515_053651.pt
+Loading RoBERTa:roberta.pt
+Loading RoBERTa:roberta_si_20250512_203657.pt
+Loading RoBERTa:roberta_si_20250506_154401.pt
+Loading RoBERTa:roberta_si_20250514_223758.pt
+Loading RoBERTa:roberta_si_20250512_190517.pt
+Loading main model: hitachi_si_20250515_055455.pt

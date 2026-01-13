@@ -3,7 +3,7 @@ import os
 import csv
 import datasets
 from datasets import load_dataset
-from .hitachi_utils import config
+from . import config
 data_dir = config.data_dir
 
 
