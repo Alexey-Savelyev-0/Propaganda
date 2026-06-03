@@ -92,3 +92,7 @@ The classification task is more straightforward - it singly relies on a BERT bas
 <img width="439" height="340" alt="image" src="https://github.com/user-attachments/assets/7d60654d-bf9b-40e3-a373-eb619cd47e2e" />
 
 # 5. Reflection
+The project replicated (at the time, to my knowledge) cutting-edge classification tooling for computational propaganda detection. 
+## 5.1 Learning outcomes
+- The project, among teaching me necessary hard-skills, also taught me this - simple is often best. My attempts to create custom pipelines were educational, but ultimately not particularly useful (no meaningful difference in validation or accuracy). Other parts of training, such as cleaning the data correctly and selecting optimal hyper-parameters based off validation data proved to have a significantly bigger impact.
+- Additionally, a significant amount of time was spent on scoping of the field, perhaps to the detriment of the experiments ran later. This project taught me to focus on thinking in terms of heuristics rather than overcommiting to a single part of the plan too heavily.
