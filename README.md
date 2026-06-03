@@ -14,7 +14,7 @@ Propaganda is pervasive in digital media, often shaping the opinions of its cons
 This project therefore discusses the various forms digital propaganda may take form, previous campaigns that were ran, and the trajectory of propaganda in the 21st century. It also evaluates various methodologies for detecting digital propaganda, with tests ran and models developed on some of the most promising approaches.
 
 # 2. Task Discusison
-During the survey part of the project, many approaches were considered for computational propaganda detection, with most of them falling into 2 categories; Network Analysis and Text Classification. An approach was chosen from the latter category. This is primarily for 3 reasons:  
+During the survey part of the project, many approaches were considered for computational propaganda detection, with most of them falling into 2 categories; Network Analysis and Text Classification. An approach was chosen from the latter category. This is primarily for 2 reasons:  
 1. Graph/Network Analysis struggles with a lack of relevant, real-world data - misinformation campaigns done on these platforms are inherently difficult to track, and are propriatary information.
 2. Graph/Network Analysis is significantly less effective. This is due agent evolution - as detection methods improve, the agents adapt in response. This is less relevant for text analysis which is less definitely identifies a bad actor, and looks at the persuasiveness of the text.  
 Less importantly, this project was educational, and allowed me to learn NLP through application. As such the text-based approaches were slightly more appealing.
@@ -80,3 +80,14 @@ The base version of the model can be described as a token-wise classification ta
 The classification task is more straightforward - it singly relies on a BERT based classifier.
 
 # 4. Results
+## 4.1 Span Identification
+<img width="577" height="110" alt="image" src="https://github.com/user-attachments/assets/e75acebb-3019-4e00-b568-be6cdd916bde" />
+
+<img width="732" height="97" alt="image" src="https://github.com/user-attachments/assets/1cecaa71-3c72-4446-8574-aa59d6b687f3" />
+
+
+## 4.2 Task Classification
+
+<img width="439" height="340" alt="image" src="https://github.com/user-attachments/assets/7d60654d-bf9b-40e3-a373-eb619cd47e2e" />
+
+# 5. Reflection
