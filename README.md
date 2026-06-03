@@ -1,9 +1,10 @@
 
 ## Table of Contents
 - [Introduction](#Introduction)
-- [Theory](#Theory)
+- [Theory](<#Task Discussion>)
 - [Implementation](#Implementation)
 - [Results and Evaluation](#Results)
+- [Reflection](#Reflection)
   
 
 
@@ -84,11 +85,11 @@ The classification task is more straightforward - it singly relies on a BERT bas
 ## 4.1 Span Identification
 <img width="577" height="110" alt="image" src="https://github.com/user-attachments/assets/e75acebb-3019-4e00-b568-be6cdd916bde" />
 
-<img width="732" height="97" alt="image" src="https://github.com/user-attachments/assets/1cecaa71-3c72-4446-8574-aa59d6b687f3" />
+
 
 
 ## 4.2 Task Classification
-
+<img width="732" height="97" alt="image" src="https://github.com/user-attachments/assets/1cecaa71-3c72-4446-8574-aa59d6b687f3" />
 <img width="439" height="340" alt="image" src="https://github.com/user-attachments/assets/7d60654d-bf9b-40e3-a373-eb619cd47e2e" />
 
 # 5. Reflection
