@@ -75,6 +75,7 @@ This is where the core pipeline ends. These snippets can be useful if displayed,
 # 3. Implementation
 Below is a description of the architectures used for this task. <br/>
 The base version of the model can be described as a token-wise classification task using BIO classes, followed by sentence-wide classifications into one of the 18 listed classes. These classification models can vary in terms of complexity - the most simple ones involve a BERT model followed by a classification layer. The model can however be improved via various additions, such as __Multi-Task Learning__, and manual token enrichment.
+
 <img width="611" height="1141" alt="1ff91b8d65f96ffe149d1dc69f33209c4720af32" src="https://github.com/user-attachments/assets/07cb1720-f1c8-47d5-ae7a-82526abc7b68" />
 
 The classification task is more straightforward - it singly relies on a BERT based classifier.
